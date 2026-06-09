@@ -37,3 +37,30 @@ class TestParseConfig:
 
     def test_empty(self):
         assert parse_config("") == []
+
+
+class TestParserErrorPaths:
+    def test_missing_template_returns_empty(self, tmp_path, monkeypatch):
+        """When template file doesn't exist, parse_interfaces returns []."""
+        import net_audit.parser as parser_mod
+        monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", tmp_path / "nonexistent")
+        result = parse_interfaces("some raw output")
+        assert result == []
+
+    def test_malformed_output_returns_empty(self):
+        """When raw output doesn't match template, returns empty list."""
+        raw = "this is garbage that won't match any template"
+        result = parse_interfaces(raw)
+        assert result == []
+
+    def test_whitespace_only_input(self):
+        """Whitespace-only input returns empty."""
+        assert parse_interfaces("   \n  \n  ") == []
+        assert parse_version("   \n  ") == {}
+        assert parse_config("   \n  ") == []
+
+    def test_version_no_match(self):
+        """Version output that doesn't match template returns empty dict."""
+        raw = "some random text without version info"
+        result = parse_version(raw)
+        assert result == {}
