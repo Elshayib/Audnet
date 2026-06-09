@@ -1,5 +1,6 @@
 """Report generator — renders audit results to Markdown and HTML."""
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from net_audit.models import AuditReport
 
+logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 

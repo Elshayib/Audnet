@@ -1,0 +1,12 @@
+Value DEVICE_ID (\S+)
+Value IP_ADDRESS (\d+\.\d+\.\d+\.\d+)
+Value PLATFORM (.+?)
+Value LOCAL_INTERFACE (\S+)
+Value REMOTE_INTERFACE (\S+)
+
+Start
+  ^Device ID:\s+${DEVICE_ID}
+  ^IP address:\s+${IP_ADDRESS}
+  ^Platform:\s+${PLATFORM}
+  ^Interface:\s+${LOCAL_INTERFACE}
+  ^Port ID \(outgoing port\):\s+${REMOTE_INTERFACE} -> Record

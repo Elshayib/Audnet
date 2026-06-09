@@ -23,13 +23,7 @@ def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw:
 class TestFullPipeline:
     @patch("net_audit.collector.ConnectHandler")
     def test_end_to_end_compliant_device(self, mock_cls, tmp_path):
-        """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device.
-
-        The collector stores version/config as raw text; we manually build a
-        fully-parsed snapshot (as a production pipeline would after a parsing
-        stage) to exercise compliance + reporting.
-        """
-        # Mock SSH responses
+        """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device."""
         mock_conn = MagicMock()
         mock_conn.send_command.side_effect = [
             ("Interface              IP-Address      OK? Method Status                Protocol\n"
@@ -51,12 +45,10 @@ class TestFullPipeline:
         mock_conn.__exit__.return_value = False
         mock_cls.return_value = mock_conn
 
-        # Write inventory
         inv = tmp_path / "devices.yaml"
         inv.write_text("devices:\n  - name: core-rtr-01\n    host: 10.0.0.1\n"
                        "    username: admin\n    password: secret\n")
 
-        # Write baseline
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
@@ -69,7 +61,6 @@ class TestFullPipeline:
             "    approved_servers: [10.0.0.60]\n"
         )
 
-        # Run pipeline: config loading + SSH collection
         _, devices = load_inventory(str(inv))
         baseline_data = load_baseline(str(bl))
         snapshots = collect_all(devices, max_workers=1)
@@ -78,20 +69,9 @@ class TestFullPipeline:
         snap = snapshots[0]
         assert snap.collection_error is None
         assert len(snap.interfaces.interfaces) == 2
-        # Collector stores version/config as raw text
         assert snap.version.raw != ""
         assert snap.config.raw != ""
 
-        # Build a fully-parsed snapshot (simulating a post-collection parsing stage)
-        parsed_snap = _make_snapshot(
-            name=snap.device_name,
-            interfaces_raw=snap.interfaces.interfaces[0].get("interface", "") and
-                "\n".join(f"{i['interface']} {i['ip_address']} {i['status']} {i['protocol']}"
-                          for i in snap.interfaces.interfaces),
-            version_raw=snap.version.raw,
-            config_raw=snap.config.raw,
-        )
-        # Re-parse from raw to ensure all fields are populated
         parsed_snap = _make_snapshot(
             name=snap.device_name,
             interfaces_raw=mock_conn.send_command.side_effect[0] if False else
@@ -113,7 +93,6 @@ class TestFullPipeline:
         assert report.pass_count == 4
         assert report.fail_count == 0
 
-        # Verify reports render without error
         md = render_markdown([report])
         html = render_html([report])
         assert "core-rtr-01" in md
@@ -163,7 +142,6 @@ class TestFullPipeline:
         snap = snapshots[0]
         assert snap.collection_error is None
 
-        # Build fully-parsed snapshot from collected raw data
         parsed_snap = _make_snapshot(
             name=snap.device_name,
             interfaces_raw=("Interface              IP-Address      OK? Method Status                Protocol\n"
@@ -182,7 +160,6 @@ class TestFullPipeline:
         assert report.overall_pass is False
         assert report.fail_count == 4
 
-        # Verify all failures are reported
         fail_details = " ".join(r.detail for r in report.checks if not r.passed)
         assert "SSHv1" in fail_details
         assert "VLAN 999" in fail_details
@@ -228,7 +205,6 @@ class TestFullPipeline:
         snap = snapshots[0]
         assert snap.collection_error is None
 
-        # Build fully-parsed snapshot from collected raw data
         parsed_snap = _make_snapshot(
             name=snap.device_name,
             interfaces_raw="Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",

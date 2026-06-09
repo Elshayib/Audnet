@@ -1,6 +1,32 @@
 """Pydantic data models for net-audit."""
 
-from pydantic import BaseModel, Field
+import ipaddress
+
+from pydantic import BaseModel, Field, SecretStr, field_validator
+
+
+def _validate_host(value: str) -> str:
+    """Validate that host is a valid IP address or resolvable hostname."""
+    if not value or not value.strip():
+        raise ValueError("host must not be empty")
+    # Check if it's a valid IP address
+    try:
+        ipaddress.ip_address(value)
+        return value
+    except ValueError:
+        pass
+    # Allow hostnames: must have at least one dot, no spaces, no special chars
+    if " " in value or "\t" in value:
+        raise ValueError(f"invalid host: {value!r}")
+    if "." not in value and value != "localhost":
+        raise ValueError(
+            f"invalid host: {value!r} — must be a valid IP, FQDN, or 'localhost'"
+        )
+    # Reject characters that are invalid in hostnames
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+    if not all(c in allowed for c in value):
+        raise ValueError(f"invalid host: {value!r} — contains invalid characters")
+    return value
 
 
 class Device(BaseModel):
@@ -8,9 +34,15 @@ class Device(BaseModel):
     host: str
     device_type: str = "cisco_ios"
     username: str = "admin"
-    password: str = ""
+    password: SecretStr = SecretStr("")
     port: int = Field(default=22, ge=1, le=65535)
     timeout: int = 30
+
+    _validate_host_field = field_validator("host", mode="before")(_validate_host)
+
+    def get_password(self) -> str:
+        """Return the plaintext password for use in SSH connections."""
+        return self.password.get_secret_value()
 
 
 class ParsedInterfaces(BaseModel):
