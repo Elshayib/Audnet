@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-
-import pytest
 
 from net_audit.collector import collect_all
 from net_audit.compliance import run_checks
