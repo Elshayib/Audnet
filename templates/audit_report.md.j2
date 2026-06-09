@@ -1,0 +1,16 @@
+# Network Security Audit Report
+
+**Generated:** {{ generated_at }}
+**Devices Audited:** {{ reports | length }}
+
+{% for report in reports %}
+## {{ report.device_name }} — {% if report.overall_pass %}PASS{% else %}FAIL{% endif %}
+
+| Check | Result | Severity | Detail |
+|-------|--------|----------|--------|
+{% for check in report.checks -%}
+| {{ check.check_name }} | {% if check.passed %}PASS{% else %}FAIL{% endif %} | {{ check.severity }} | {{ check.detail }}
+{% endfor %}
+
+**Passed:** {{ report.pass_count }} / {{ report.checks | length }}
+{% endfor %}

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>Network Security Audit Report</title>
+<style>
+body { font-family: monospace; max-width: 900px; margin: 2em auto; }
+h1 { border-bottom: 2px solid #333; }
+.device { margin: 2em 0; padding: 1em; border: 1px solid #ccc; border-radius: 8px; }
+.pass { color: #2a9d8f; font-weight: bold; }
+.fail { color: #e63946; font-weight: bold; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+th { background: #f4f4f4; }
+</style>
+</head>
+<body>
+<h1>Network Security Audit Report</h1>
+<p><strong>Generated:</strong> {{ generated_at }}</p>
+<p><strong>Devices Audited:</strong> {{ reports | length }}</p>
+
+{% for report in reports %}
+<div class="device">
+<h2>{{ report.device_name }} — <span class="{{ 'pass' if report.overall_pass else 'fail' }}">
+{{ 'PASS' if report.overall_pass else 'FAIL' }}</span></h2>
+<table>
+<tr><th>Check</th><th>Result</th><th>Severity</th><th>Detail</th></tr>
+{% for check in report.checks %}
+<tr>
+<td>{{ check.check_name }}</td>
+<td class="{{ 'pass' if check.passed else 'fail' }}">{{ 'PASS' if check.passed else 'FAIL' }}</td>
+<td>{{ check.severity }}</td>
+<td>{{ check.detail }}</td>
+</tr>
+{% endfor %}
+</table>
+<p><strong>Passed:</strong> {{ report.pass_count }} / {{ report.checks | length }}</p>
+</div>
+{% endfor %}
+</body>
+</html>
