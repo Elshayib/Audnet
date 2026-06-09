@@ -14,7 +14,7 @@ class Device(BaseModel):
 
 
 class ParsedInterfaces(BaseModel):
-    interfaces: list[dict] = Field(default_factory=list)
+    interfaces: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ParsedVersion(BaseModel):

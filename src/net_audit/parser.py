@@ -10,7 +10,7 @@ import textfsm
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "textfsm_templates"
 
 
-def _apply_template(template_name: str, raw: str) -> list[dict]:
+def _apply_template(template_name: str, raw: str) -> list[dict[str, str]]:
     template_path = TEMPLATE_DIR / template_name
     if not template_path.exists():
         return []
@@ -23,14 +23,14 @@ def _apply_template(template_name: str, raw: str) -> list[dict]:
         return []
 
 
-def parse_interfaces(raw: str) -> list[dict]:
+def parse_interfaces(raw: str) -> list[dict[str, str]]:
     if not raw.strip():
         return []
     records = _apply_template("cisco_ios_show_ip_interface_brief.textfsm", raw)
     return [{k.lower().replace(" ", "_"): v.strip() for k, v in r.items()} for r in records]
 
 
-def parse_version(raw: str) -> dict:
+def parse_version(raw: str) -> dict[str, str]:
     if not raw.strip():
         return {}
     rows = _apply_template("cisco_ios_show_version.textfsm", raw)

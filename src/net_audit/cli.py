@@ -23,7 +23,7 @@ def audit(
     output: str = typer.Option("audit_report", help="Output file prefix"),
     format: str = typer.Option("both", help="Output format: md, html, or both"),
     workers: int = typer.Option(4, help="Max parallel SSH connections"),
-):
+) -> None:
     """Run a full compliance audit against all devices."""
     console.print("[bold blue]Starting network security audit...[/bold blue]")
 

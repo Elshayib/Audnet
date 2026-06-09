@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import re
 
 from net_audit.models import DeviceSnapshot, ComplianceResult
 
 
-def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
+def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     lines = snapshot.config.lines
     has_v2 = any(re.search(r"ip ssh version\s+2", line) for line in lines)
     has_v1 = any(re.search(r"ip ssh version\s+1", line) for line in lines)
@@ -23,7 +25,7 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict) -> ComplianceResu
                             detail="No SSH version configuration found")
 
 
-def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
+def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     allowed = set(str(v) for v in config.get("allowed_vlans", []))
     lines = snapshot.config.lines
     violations = []
@@ -47,7 +49,7 @@ def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict) -> ComplianceRe
                             detail="All VLAN assignments are within the allowed set")
 
 
-def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
+def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
     violations = [m.group(1) for line in snapshot.config.lines
                   if (m := re.search(r"ntp server\s+(\S+)", line)) and m.group(1) not in approved]
@@ -63,7 +65,7 @@ def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceRes
                             detail="All NTP servers are approved")
 
 
-def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
+def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
     violations = [m.group(1) for line in snapshot.config.lines
                   if (m := re.search(r"logging host\s+(\S+)", line)) and m.group(1) not in approved]
@@ -87,7 +89,7 @@ _RULE_DISPATCH = {
 }
 
 
-def run_checks(snapshot: DeviceSnapshot, baseline: dict) -> list[ComplianceResult]:
+def run_checks(snapshot: DeviceSnapshot, baseline: dict[str, Any]) -> list[ComplianceResult]:
     results = []
     for check_name, check_config in baseline.get("checks", {}).items():
         handler = _RULE_DISPATCH.get(check_config.get("rule"))

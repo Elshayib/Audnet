@@ -1,11 +1,13 @@
 """Parallel SSH collector for network device data."""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import cast
 
 from netmiko import ConnectHandler
 
 from net_audit.models import (Device, DeviceSnapshot, ParsedInterfaces,
                                ParsedVersion, ParsedConfig)
+from net_audit.parser import parse_interfaces
 
 
 SHOW_COMMANDS = [
@@ -26,13 +28,13 @@ def collect_device(device: Device) -> DeviceSnapshot:
             "timeout": device.timeout,
         }
         with ConnectHandler(**params) as conn:
-            outputs = [conn.send_command(cmd) for cmd in SHOW_COMMANDS]
+            raw_outputs = [cast(str, conn.send_command(cmd)) for cmd in SHOW_COMMANDS]
 
         return DeviceSnapshot(
             device_name=device.name,
-            interfaces=ParsedInterfaces(raw=outputs[0]),
-            version=ParsedVersion(raw=outputs[1]),
-            config=ParsedConfig(raw=outputs[2]),
+            interfaces=ParsedInterfaces(interfaces=parse_interfaces(raw_outputs[0])),
+            version=ParsedVersion(raw=raw_outputs[1]),
+            config=ParsedConfig(raw=raw_outputs[2]),
         )
     except Exception as exc:
         return DeviceSnapshot(
