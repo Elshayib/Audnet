@@ -1,0 +1,27 @@
+checks:
+  ssh_version:
+    description: "SSHv2 must be enabled; SSHv1 is prohibited"
+    severity: critical
+    rule: ssh_v2_only
+
+  inactive_ports:
+    description: "All active switchports must be assigned to a secure VLAN"
+    severity: high
+    rule: no_open_ports
+    allowed_vlans: [10, 20, 30, 100]
+
+  ntp_config:
+    description: "NTP must point to approved servers"
+    severity: medium
+    rule: ntp_approved
+    approved_servers:
+      - 10.0.0.50
+      - 10.0.0.51
+
+  syslog_config:
+    description: "Syslog must point to approved log servers"
+    severity: medium
+    rule: syslog_approved
+    approved_servers:
+      - 10.0.0.60
+      - 10.0.0.61
