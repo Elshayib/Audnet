@@ -6,8 +6,37 @@ on:
   pull_request:
     branches: [master, main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint with ruff
+        run: uv run ruff check src/ tests/
+
+      - name: Type check with mypy
+        run: uv run mypy src/
+
   test:
+    needs: lint
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -29,11 +58,8 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -e ".[dev]"
 
-      - name: Lint with ruff
-        run: uv run ruff check src/ tests/
-
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
       - name: Coverage report
-        run: uv run pytest tests/ --cov=net_audit --cov-report=term-missing
+        run: uv run pytest tests/ --cov=net_audit --cov-report=term-missing --cov-fail-under=90
