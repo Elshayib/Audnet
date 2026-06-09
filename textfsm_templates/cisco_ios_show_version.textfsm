@@ -1,0 +1,6 @@
+Value VERSION ([\d\(\)\.]+)
+Value UPTIME (.+)
+
+Start
+  ^Cisco IOS Software.*Version\s+${VERSION}
+  ^.*uptime is\s+${UPTIME}
