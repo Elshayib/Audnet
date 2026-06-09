@@ -7,7 +7,7 @@ from typing import cast
 from netmiko import ConnectHandler
 
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
-from net_audit.parser import parse_interfaces
+from net_audit.parser import parse_interfaces, parse_version, parse_config
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,12 @@ def collect_device(device: Device) -> DeviceSnapshot:
             raw_outputs = [cast(str, conn.send_command(cmd)) for cmd in SHOW_COMMANDS]
 
         logger.info("Successfully collected data from %s", device.name)
+        parsed_version = parse_version(raw_outputs[1])
         return DeviceSnapshot(
             device_name=device.name,
             interfaces=ParsedInterfaces(interfaces=parse_interfaces(raw_outputs[0])),
-            version=ParsedVersion(raw=raw_outputs[1]),
-            config=ParsedConfig(raw=raw_outputs[2]),
+            version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
+            config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
         )
     except Exception as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)

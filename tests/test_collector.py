@@ -27,6 +27,38 @@ class TestCollectDevice:
         assert snap.collection_error is None
 
     @patch("net_audit.collector.ConnectHandler")
+    def test_parser_wired_version_and_config(self, mock_cls):
+        """Collector must parse version and config through TextFSM/parser."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            ("Interface              IP-Address      OK? Method Status                Protocol\n"
+             "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"),
+            ("Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+             "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+             "router uptime is 5 days, 3 hours, 22 minutes"),
+            "hostname rtr01\nip ssh version 2\nntp server 10.0.0.50\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        # Version must be parsed (not just raw)
+        assert snap.version.raw != ""
+        assert "15.2" in snap.version.version
+        assert "5 days" in snap.version.uptime
+        # Config lines must be parsed (not just raw)
+        assert len(snap.config.lines) == 3
+        assert "hostname rtr01" in snap.config.lines
+        assert "ip ssh version 2" in snap.config.lines
+        assert snap.config.raw != ""
+        # Interfaces must be parsed
+        assert len(snap.interfaces.interfaces) == 1
+        assert snap.interfaces.interfaces[0]["interface"] == "GigabitEthernet0/0"
+
+    @patch("net_audit.collector.ConnectHandler")
     def test_connection_failure(self, mock_cls):
         mock_cls.side_effect = Exception("Connection timed out")
 
