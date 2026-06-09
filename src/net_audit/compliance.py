@@ -2,86 +2,136 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-import re
+from net_audit.models import ComplianceResult, DeviceSnapshot
 
-from net_audit.models import DeviceSnapshot, ComplianceResult
+logger = logging.getLogger(__name__)
 
 
 def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     lines = snapshot.config.lines
-    has_v2 = any(re.search(r"ip ssh version\s+2", line) for line in lines)
-    has_v1 = any(re.search(r"ip ssh version\s+1", line) for line in lines)
     sev = config["severity"]
 
-    if has_v1:
-        return ComplianceResult(check_name="ssh_version", passed=False, severity=sev,
-                                detail="SSHv1 is configured — prohibited")
-    if has_v2:
-        return ComplianceResult(check_name="ssh_version", passed=True, severity=sev,
-                                detail="SSHv2 is enabled")
-    return ComplianceResult(check_name="ssh_version", passed=False, severity=sev,
-                            detail="No SSH version configuration found")
+    ssh_version_lines = [line for line in lines if "ip ssh version" in line]
+    if not ssh_version_lines:
+        logger.warning("%s: no 'ip ssh version' directive found", snapshot.device_name)
+        return ComplianceResult(
+            check_name="ssh_version", passed=False, severity=sev,
+            detail="No SSH version configuration found — must explicitly set 'ip ssh version 2'")
+
+    for line in ssh_version_lines:
+        if "ip ssh version 1" in line:
+            logger.info("%s: SSHv1 detected", snapshot.device_name)
+            return ComplianceResult(
+                check_name="ssh_version", passed=False, severity=sev,
+                detail="SSHv1 is configured — prohibited. Use 'ip ssh version 2'")
+        if "ip ssh version 2" in line:
+            logger.info("%s: SSHv2 confirmed", snapshot.device_name)
+            return ComplianceResult(
+                check_name="ssh_version", passed=True, severity=sev,
+                detail="SSHv2 is explicitly enabled")
+
+    return ComplianceResult(
+        check_name="ssh_version", passed=False, severity=sev,
+        detail=f"Unexpected SSH version config: {'; '.join(ssh_version_lines)}")
 
 
 def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     allowed = set(str(v) for v in config.get("allowed_vlans", []))
     lines = snapshot.config.lines
-    violations = []
+    violations: list[str] = []
 
     for i, line in enumerate(lines):
-        m = re.search(r"switchport access vlan (\d+)", line)
-        if m and m.group(1) not in allowed:
-            iface = "unknown"
-            for j in range(i - 1, max(i - 5, -1), -1):
-                im = re.match(r"^interface\s+(\S+)", lines[j])
-                if im:
-                    iface = im.group(1)
-                    break
-            violations.append(f"{iface} in VLAN {m.group(1)}")
+        if "switchport access vlan" not in line:
+            continue
+        parts = line.strip().split()
+        if len(parts) < 4:
+            continue
+        vlan = parts[-1]
+        if vlan in allowed:
+            continue
+
+        # Walk backwards to find the interface name
+        iface = "unknown"
+        for j in range(i - 1, max(i - 10, -1), -1):
+            stripped = lines[j].strip()
+            if stripped.startswith("interface "):
+                iface = stripped.split(" ", 1)[1]
+                break
+        violations.append(f"{iface} in VLAN {vlan}")
 
     sev = config["severity"]
     if violations:
-        return ComplianceResult(check_name="inactive_ports", passed=False, severity=sev,
-                                detail=f"Unauthorized VLANs: {'; '.join(violations)}")
-    return ComplianceResult(check_name="inactive_ports", passed=True, severity=sev,
-                            detail="All VLAN assignments are within the allowed set")
+        logger.info("%s: unauthorized VLANs: %s", snapshot.device_name, violations)
+        return ComplianceResult(
+            check_name="inactive_ports", passed=False, severity=sev,
+            detail=f"Unauthorized VLAN assignments: {'; '.join(violations)}")
+    return ComplianceResult(
+        check_name="inactive_ports", passed=True, severity=sev,
+        detail="All VLAN assignments are within the allowed set")
 
 
 def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    violations = [m.group(1) for line in snapshot.config.lines
-                  if (m := re.search(r"ntp server\s+(\S+)", line)) and m.group(1) not in approved]
+    ntp_lines = [line.strip() for line in snapshot.config.lines if "ntp server" in line]
     sev = config["severity"]
 
+    if not ntp_lines:
+        logger.warning("%s: no NTP servers configured", snapshot.device_name)
+        return ComplianceResult(
+            check_name="ntp_config", passed=False, severity=sev,
+            detail="No NTP servers configured — at least one required")
+
+    violations = []
+    for line in ntp_lines:
+        parts = line.split()
+        if len(parts) >= 3:
+            server = parts[2]
+            if server not in approved:
+                violations.append(server)
+
     if violations:
-        return ComplianceResult(check_name="ntp_config", passed=False, severity=sev,
-                                detail=f"Unapproved NTP servers: {', '.join(violations)}")
-    if not any("ntp server" in line for line in snapshot.config.lines):
-        return ComplianceResult(check_name="ntp_config", passed=False, severity=sev,
-                                detail="No NTP servers configured")
-    return ComplianceResult(check_name="ntp_config", passed=True, severity=sev,
-                            detail="All NTP servers are approved")
+        logger.info("%s: unapproved NTP servers: %s", snapshot.device_name, violations)
+        return ComplianceResult(
+            check_name="ntp_config", passed=False, severity=sev,
+            detail=f"Unapproved NTP servers: {', '.join(violations)}")
+    return ComplianceResult(
+        check_name="ntp_config", passed=True, severity=sev,
+        detail="All NTP servers are approved")
 
 
 def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    violations = [m.group(1) for line in snapshot.config.lines
-                  if (m := re.search(r"logging host\s+(\S+)", line)) and m.group(1) not in approved]
+    syslog_lines = [line.strip() for line in snapshot.config.lines if "logging host" in line]
     sev = config["severity"]
 
+    if not syslog_lines:
+        logger.warning("%s: no syslog servers configured", snapshot.device_name)
+        return ComplianceResult(
+            check_name="syslog_config", passed=False, severity=sev,
+            detail="No syslog servers configured — at least one required")
+
+    violations = []
+    for line in syslog_lines:
+        parts = line.split()
+        if len(parts) >= 3:
+            server = parts[2]
+            if server not in approved:
+                violations.append(server)
+
     if violations:
-        return ComplianceResult(check_name="syslog_config", passed=False, severity=sev,
-                                detail=f"Unapproved syslog servers: {', '.join(violations)}")
-    if not any("logging host" in line for line in snapshot.config.lines):
-        return ComplianceResult(check_name="syslog_config", passed=False, severity=sev,
-                                detail="No syslog servers configured")
-    return ComplianceResult(check_name="syslog_config", passed=True, severity=sev,
-                            detail="All syslog servers are approved")
+        logger.info("%s: unapproved syslog servers: %s", snapshot.device_name, violations)
+        return ComplianceResult(
+            check_name="syslog_config", passed=False, severity=sev,
+            detail=f"Unapproved syslog servers: {', '.join(violations)}")
+    return ComplianceResult(
+        check_name="syslog_config", passed=True, severity=sev,
+        detail="All syslog servers are approved")
 
 
-_RULE_DISPATCH = {
+_RULE_DISPATCH: dict[str, Any] = {
     "ssh_v2_only": _check_ssh_v2_only,
     "no_open_ports": _check_no_open_ports,
     "ntp_approved": _check_ntp_approved,
@@ -94,6 +144,7 @@ def run_checks(snapshot: DeviceSnapshot, baseline: dict[str, Any]) -> list[Compl
     for check_name, check_config in baseline.get("checks", {}).items():
         handler = _RULE_DISPATCH.get(check_config.get("rule"))
         if handler is None:
+            logger.warning("Unknown rule '%s' for check '%s'", check_config.get("rule"), check_name)
             results.append(ComplianceResult(
                 check_name=check_name, passed=False,
                 severity=check_config.get("severity", "medium"),

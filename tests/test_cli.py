@@ -24,7 +24,7 @@ def _mock_snapshot(name: str, config_lines: list[str]) -> DeviceSnapshot:
 def _write_inventory(tmp_path: Path, devices: list[dict] | None = None) -> Path:
     inv = tmp_path / "devices.yaml"
     if devices is None:
-        devices = [{"name": "rtr01", "host": "10.0.0.1", "username": "admin", "password": "x"}]
+        devices = [{"name": "rtr01", "host": "10.0.0.1", "username": "admin", "password": "***"}]
     lines = ["devices:"]
     for d in devices:
         lines.append(f"  - name: {d['name']}")
@@ -41,6 +41,13 @@ def _write_baseline(tmp_path: Path) -> Path:
     return bl
 
 
+class TestCliVersion:
+    def test_version_command(self):
+        result = runner.invoke(app, ["version"])
+        assert result.exit_code == 0
+        assert "net-audit" in result.output
+
+
 class TestCliAudit:
     @patch("net_audit.cli.collect_all")
     @patch("net_audit.cli.load_baseline")
@@ -53,7 +60,7 @@ class TestCliAudit:
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
         out = tmp_path / "report"
-        result = runner.invoke(app, ["--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "PASS" in result.output
         assert Path(f"{out}.md").exists()
@@ -69,7 +76,7 @@ class TestCliAudit:
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
         out = tmp_path / "report"
-        result = runner.invoke(app, ["--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "FAIL" in result.output
 
@@ -87,7 +94,7 @@ class TestCliAudit:
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
         out = tmp_path / "report"
-        result = runner.invoke(app, ["--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "ERROR" in result.output
         assert "Connection timed out" in result.output
@@ -103,7 +110,7 @@ class TestCliAudit:
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
         out = tmp_path / "report"
-        result = runner.invoke(app, ["--inventory", str(inv), "--baseline", str(bl),
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
                                      "--output", str(out), "--format", "html"])
         assert result.exit_code == 0, f"Output: {result.output}"
         assert Path(f"{out}.html").exists()
@@ -125,7 +132,22 @@ class TestCliAudit:
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
         out = tmp_path / "report"
-        result = runner.invoke(app, ["--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)])
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "rtr01" in result.output
         assert "sw01" in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_audit_verbose_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
+                                                 username="admin", password="x")])
+        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
+                                     "--output", str(out), "--verbose"])
+        assert result.exit_code == 0, f"Output: {result.output}"

@@ -15,6 +15,48 @@ class TestDevice:
             Device(name="rtr01", host="10.0.0.1", device_type="cisco_ios",
                    username="admin", password="x", port=0)
 
+    def test_password_is_secret_str(self):
+        d = Device(name="rtr01", host="10.0.0.1", password="s3cret")
+        assert d.password.get_secret_value() == "s3cret"
+        # SecretStr should not expose the password in repr
+        assert "s3cret" not in repr(d.password)
+
+    def test_get_password(self):
+        d = Device(name="rtr01", host="10.0.0.1", password="s3cret")
+        assert d.get_password() == "s3cret"
+
+    def test_host_validation_rejects_empty(self):
+        with pytest.raises(ValidationError):
+            Device(name="rtr01", host="", password="x")
+
+    def test_host_validation_rejects_spaces(self):
+        with pytest.raises(ValidationError):
+            Device(name="rtr01", host="has spaces", password="x")
+
+    def test_host_validation_accepts_ip(self):
+        d = Device(name="rtr01", host="192.168.1.1", password="x")
+        assert d.host == "192.168.1.1"
+
+    def test_host_validation_accepts_fqdn(self):
+        d = Device(name="rtr01", host="router1.example.com", password="x")
+        assert d.host == "router1.example.com"
+
+    def test_host_validation_accepts_localhost(self):
+        d = Device(name="rtr01", host="localhost", password="x")
+        assert d.host == "localhost"
+
+    def test_host_validation_rejects_single_word(self):
+        with pytest.raises(ValidationError):
+            Device(name="rtr01", host="router1", password="x")
+
+    def test_host_validation_rejects_special_chars(self):
+        with pytest.raises(ValidationError):
+            Device(name="rtr01", host="router1;rm -rf", password="x")
+
+    def test_host_validation_accepts_ipv6(self):
+        d = Device(name="rtr01", host="::1", password="x")
+        assert d.host == "::1"
+
 
 class TestComplianceResult:
     def test_result_pass(self):

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any
 
 import yaml
 
+from net_audit.exceptions import ConfigError
 from net_audit.models import Device
 
+logger = logging.getLogger(__name__)
 
 _ENV_RE = re.compile(r"\$\{(\w+)\}")
 
@@ -32,18 +35,38 @@ def _deep_resolve(obj: Any) -> Any:
 
 
 def load_inventory(path: str) -> tuple[dict[str, Any], list[Device]]:
-    with open(path) as f:
-        data: dict[str, Any] = yaml.safe_load(f)
+    logger.info("Loading inventory from %s", path)
+    try:
+        with open(path) as f:
+            data: dict[str, Any] = yaml.safe_load(f)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"Inventory file not found: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in inventory: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ConfigError("Inventory YAML must be a mapping at the top level")
+
     data = _deep_resolve(data)
     defaults = data.get("defaults", {})
     devices = []
     for entry in data.get("devices", []):
         merged = {**defaults, **entry}
         devices.append(Device(**merged))
+    logger.info("Loaded %d devices", len(devices))
     return defaults, devices
 
 
 def load_baseline(path: str) -> dict[str, Any]:
-    with open(path) as f:
-        data: dict[str, Any] = yaml.safe_load(f)
+    logger.info("Loading baseline from %s", path)
+    try:
+        with open(path) as f:
+            data: dict[str, Any] = yaml.safe_load(f)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"Baseline file not found: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in baseline: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ConfigError("Baseline YAML must be a mapping at the top level")
     return data

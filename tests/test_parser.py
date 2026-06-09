@@ -1,4 +1,6 @@
+import pytest
 from net_audit.parser import parse_interfaces, parse_version, parse_config
+from net_audit.exceptions import ParseError
 
 
 class TestParseInterfaces:
@@ -64,3 +66,14 @@ class TestParserErrorPaths:
         raw = "some random text without version info"
         result = parse_version(raw)
         assert result == {}
+
+    def test_corrupt_template_raises_parse_error(self, tmp_path, monkeypatch):
+        """A corrupt TextFSM template raises ParseError."""
+        import net_audit.parser as parser_mod
+        bad_template_dir = tmp_path / "templates"
+        bad_template_dir.mkdir()
+        bad_template = bad_template_dir / "cisco_ios_show_ip_interface_brief.textfsm"
+        bad_template.write_text("This is not a valid TextFSM template {{{")
+        monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", bad_template_dir)
+        with pytest.raises(ParseError, match="Template error"):
+            parse_interfaces("some raw output")
