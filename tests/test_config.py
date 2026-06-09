@@ -1,5 +1,4 @@
 import os
-import pytest
 from net_audit.config import load_inventory, load_baseline
 
 

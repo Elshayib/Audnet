@@ -1,4 +1,3 @@
-import pytest
 from net_audit.parser import parse_interfaces, parse_version, parse_config
 
 

@@ -9,8 +9,8 @@ from net_audit.models import DeviceSnapshot, ComplianceResult
 
 def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
     lines = snapshot.config.lines
-    has_v2 = any(re.search(r"ip ssh version\s+2", l) for l in lines)
-    has_v1 = any(re.search(r"ip ssh version\s+1", l) for l in lines)
+    has_v2 = any(re.search(r"ip ssh version\s+2", line) for line in lines)
+    has_v1 = any(re.search(r"ip ssh version\s+1", line) for line in lines)
     sev = config["severity"]
 
     if has_v1:
@@ -49,14 +49,14 @@ def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict) -> ComplianceRe
 
 def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    violations = [m.group(1) for l in snapshot.config.lines
-                  if (m := re.search(r"ntp server\s+(\S+)", l)) and m.group(1) not in approved]
+    violations = [m.group(1) for line in snapshot.config.lines
+                  if (m := re.search(r"ntp server\s+(\S+)", line)) and m.group(1) not in approved]
     sev = config["severity"]
 
     if violations:
         return ComplianceResult(check_name="ntp_config", passed=False, severity=sev,
                                 detail=f"Unapproved NTP servers: {', '.join(violations)}")
-    if not any("ntp server" in l for l in snapshot.config.lines):
+    if not any("ntp server" in line for line in snapshot.config.lines):
         return ComplianceResult(check_name="ntp_config", passed=False, severity=sev,
                                 detail="No NTP servers configured")
     return ComplianceResult(check_name="ntp_config", passed=True, severity=sev,
@@ -65,14 +65,14 @@ def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceRes
 
 def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    violations = [m.group(1) for l in snapshot.config.lines
-                  if (m := re.search(r"logging host\s+(\S+)", l)) and m.group(1) not in approved]
+    violations = [m.group(1) for line in snapshot.config.lines
+                  if (m := re.search(r"logging host\s+(\S+)", line)) and m.group(1) not in approved]
     sev = config["severity"]
 
     if violations:
         return ComplianceResult(check_name="syslog_config", passed=False, severity=sev,
                                 detail=f"Unapproved syslog servers: {', '.join(violations)}")
-    if not any("logging host" in l for l in snapshot.config.lines):
+    if not any("logging host" in line for line in snapshot.config.lines):
         return ComplianceResult(check_name="syslog_config", passed=False, severity=sev,
                                 detail="No syslog servers configured")
     return ComplianceResult(check_name="syslog_config", passed=True, severity=sev,

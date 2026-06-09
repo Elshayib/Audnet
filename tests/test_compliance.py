@@ -1,4 +1,3 @@
-import pytest
 from net_audit.compliance import run_checks
 from net_audit.models import (DeviceSnapshot, ParsedInterfaces,
                                ParsedVersion, ParsedConfig)
