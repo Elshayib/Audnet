@@ -60,7 +60,8 @@ class TestCollectDevice:
 
     @patch("net_audit.collector.ConnectHandler")
     def test_connection_failure(self, mock_cls):
-        mock_cls.side_effect = Exception("Connection timed out")
+        from netmiko.exceptions import NetmikoTimeoutException
+        mock_cls.side_effect = NetmikoTimeoutException("Connection timed out")
 
         snap = collect_device(_make_device())
         assert snap.collection_error is not None

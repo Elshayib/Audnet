@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast
 
 from netmiko import ConnectHandler
+from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
 
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from net_audit.parser import parse_interfaces, parse_version, parse_config
@@ -40,7 +41,7 @@ def collect_device(device: Device) -> DeviceSnapshot:
             version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
             config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
         )
-    except Exception as exc:
+    except (NetmikoTimeoutException, NetmikoAuthenticationException, OSError, ValueError) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,
