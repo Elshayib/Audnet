@@ -37,6 +37,8 @@ class Device(BaseModel):
     password: SecretStr = SecretStr("")
     port: int = Field(default=22, ge=1, le=65535)
     timeout: int = 30
+    use_keys: bool = False
+    key_file: str | None = None
 
     _validate_host_field = field_validator("host", mode="before")(_validate_host)
 

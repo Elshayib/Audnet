@@ -67,6 +67,74 @@ class TestCollectDevice:
         assert snap.collection_error is not None
         assert "Connection timed out" in snap.collection_error
 
+    @patch("net_audit.collector.ConnectHandler")
+    def test_ssh_key_auth_passed_to_connect_handler(self, mock_cls):
+        """When use_keys=True, ConnectHandler receives use_keys and key_file."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        device = Device(
+            name="rtr01", host="10.0.0.1", username="admin",
+            use_keys=True, key_file="/home/user/.ssh/id_ed25519",
+        )
+        snap = collect_device(device)
+        assert snap.collection_error is None
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["use_keys"] is True
+        assert call_kwargs["key_file"] == "/home/user/.ssh/id_ed25519"
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_ssh_key_auth_no_key_file(self, mock_cls):
+        """When use_keys=True but no key_file, only use_keys is passed."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        device = Device(
+            name="rtr01", host="10.0.0.1", username="admin",
+            use_keys=True,
+        )
+        snap = collect_device(device)
+        assert snap.collection_error is None
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["use_keys"] is True
+        assert "key_file" not in call_kwargs
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_password_auth_no_key_params(self, mock_cls):
+        """When use_keys=False (default), no key params are passed."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        call_kwargs = mock_cls.call_args.kwargs
+        assert "use_keys" not in call_kwargs
+        assert "key_file" not in call_kwargs
+
 
 class TestCollectAll:
     @patch("net_audit.collector.collect_device")
