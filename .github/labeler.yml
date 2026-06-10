@@ -1,0 +1,56 @@
+# Auto-label configuration for PRs based on changed paths
+# Production-ready setup with actions/labeler
+
+enhancement:
+  - src/**/*
+  - '!.github/**/*'
+
+bug:
+  - tests/**/*
+
+refactor:
+  - src/**/*.py
+
+chore:
+  - .github/**/*
+  - pyproject.toml
+  - '*.lock'
+  - '*.toml'
+  - 'uv.lock'
+
+documentation:
+  - '**/*.md'
+  - docs/**/*
+  - .github/ISSUE_TEMPLATE/**/*
+
+security:
+  - pyproject.toml
+  - src/net_audit/**/*
+
+performance:
+  - src/net_audit/collector.py
+
+cli:
+  - src/net_audit/cli.py
+
+compliance:
+  - src/net_audit/compliance.py
+
+collector:
+  - src/net_audit/collector.py
+
+parser:
+  - src/net_audit/parser.py
+
+models:
+  - src/net_audit/models.py
+
+config:
+  - src/net_audit/config.py
+
+tests:
+  - tests/**/*
+
+multi-vendor:
+  - src/net_audit/collector.py
+  - src/net_audit/parser.py

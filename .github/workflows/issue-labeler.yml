@@ -1,0 +1,51 @@
+name: Auto Label Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = (issue.body || '').toLowerCase();
+            const labelsToAdd = [];
+
+            // Keyword-based labeling for issues (production pattern)
+            if (title.includes('fix') || title.includes('bug') || body.includes('bug')) {
+              labelsToAdd.push('bug');
+            }
+            if (title.includes('feat') || title.includes('enhance') || body.includes('feature')) {
+              labelsToAdd.push('enhancement');
+            }
+            if (title.includes('docs') || title.includes('documentation') || body.includes('readme')) {
+              labelsToAdd.push('documentation');
+            }
+            if (title.includes('security') || body.includes('secret') || body.includes('password')) {
+              labelsToAdd.push('security');
+            }
+            if (title.includes('performance') || title.includes('slow')) {
+              labelsToAdd.push('performance');
+            }
+            if (title.includes('refactor') || title.includes('clean')) {
+              labelsToAdd.push('refactor');
+            }
+            if (title.includes('chore') || title.includes('ci') || title.includes('test')) {
+              labelsToAdd.push('chore');
+            }
+
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labelsToAdd
+              });
+            }
