@@ -18,9 +18,9 @@ jobs:
         with:
           sizes: >
             {
-              "XS": 0,
-              "S": 10,
-              "M": 50,
-              "L": 200,
-              "XL": 500
+              "size/XS": 0,
+              "size/S": 10,
+              "size/M": 50,
+              "size/L": 200,
+              "size/XL": 500
             }

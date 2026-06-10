@@ -10,15 +10,16 @@ enhancement:
 bug:
   - changed-files:
       - any-glob-to-any-file:
-          - tests/**/*
+          - src/**/*
+          - '!src/**/.github/**/*'
+          - '**/fix*'
+          - '**/bug*'
 
 chore:
   - changed-files:
       - any-glob-to-any-file:
           - .github/**/*
-          - pyproject.toml
           - '*.lock'
-          - '*.toml'
           - uv.lock
 
 documentation:
@@ -31,8 +32,9 @@ documentation:
 security:
   - changed-files:
       - any-glob-to-any-file:
+          - src/net_audit/reporter.py
+          - src/net_audit/collector.py
           - pyproject.toml
-          - src/net_audit/**/*
 
 collector:
   - changed-files:
