@@ -43,6 +43,14 @@ net-audit = "net_audit.cli:app"
 [tool.hatch.version]
 source = "vcs"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/net_audit"]
+include = [
+    "src/net_audit/**/*.py",
+    "src/net_audit/templates/**/*",
+    "src/net_audit/textfsm_templates/**/*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
