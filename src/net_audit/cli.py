@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 
+import structlog
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -16,15 +17,45 @@ from net_audit.reporter import render_markdown, render_html
 
 app = typer.Typer(help="Network Security & Compliance State Auditor")
 console = Console()
-logger = logging.getLogger("net_audit")
+logger = structlog.get_logger("net_audit")
+
+_SECRET_KEYS = frozenset({"password", "key_file", "secret", "passwd", "token"})
+
+
+def _redact_secrets(
+    _logger: logging.Logger, _method_name: str, event_dict: dict
+) -> dict:
+    """Structlog processor that redacts sensitive values from log events."""
+    for key in event_dict:
+        if key.lower() in _SECRET_KEYS and event_dict[key] is not None:
+            event_dict[key] = "***REDACTED***"
+    return event_dict
 
 
 def _setup_logging(verbose: bool = False) -> None:
+    """Configure structlog with JSON or console output and secret redaction."""
     level = logging.DEBUG if verbose else logging.INFO
+    shared_processors: list = [
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+        _redact_secrets,
+    ]
+    if verbose:
+        renderer = structlog.dev.ConsoleRenderer()
+    else:
+        renderer = structlog.processors.JSONRenderer()
+
+    structlog.configure(
+        processors=[*shared_processors, renderer],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
     logging.basicConfig(
+        format="%(message)s",
         level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
