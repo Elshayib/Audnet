@@ -17,7 +17,7 @@ def _load_template(name: str) -> str:
     return (_TEMPLATE_PACKAGE / name).read_text()
 
 
-_jinja = Environment(loader=BaseLoader())
+_jinja = Environment(loader=BaseLoader(), autoescape=True)
 
 _md_source = _load_template("audit_report.md.j2")
 _html_source = _load_template("audit_report.html.j2")

@@ -39,6 +39,8 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5.0",
     "mypy>=1.10",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
 ]
 
 [project.scripts]
