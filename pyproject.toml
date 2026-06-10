@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "net-audit"
 dynamic = ["version"]
-description = "Network Security & Compliance State Auditor"
+description = "Network Security & Compliance Auditor — automated SSH baseline checks to detect and prevent configuration drift"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Islam Elshayib", email = "islamshayib@users.noreply.github.com" }]
@@ -15,6 +15,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Networking",
     "Topic :: System :: Systems Administration",
 ]
@@ -28,6 +30,7 @@ dependencies = [
     "typer>=0.12.0",
     "rich>=13.0",
     "structlog>=24.0",
+    "tenacity>=8.5.0",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +74,7 @@ mypy_path = "src"
 module = [
     "textfsm.*",
     "yaml.*",
+    "tenacity.*",
 ]
 ignore_missing_imports = true
 
