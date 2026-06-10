@@ -30,6 +30,10 @@ def collect_device(device: Device) -> DeviceSnapshot:
             "port": device.port,
             "timeout": device.timeout,
         }
+        if device.use_keys:
+            params["use_keys"] = True
+            if device.key_file:
+                params["key_file"] = device.key_file
         with ConnectHandler(**params) as conn:
             raw_outputs = [cast(str, conn.send_command(cmd)) for cmd in SHOW_COMMANDS]
 

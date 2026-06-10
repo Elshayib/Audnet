@@ -57,6 +57,27 @@ class TestDevice:
         d = Device(name="rtr01", host="::1", password="x")
         assert d.host == "::1"
 
+    def test_ssh_key_defaults(self):
+        d = Device(name="rtr01", host="10.0.0.1", password="x")
+        assert d.use_keys is False
+        assert d.key_file is None
+
+    def test_ssh_key_with_key_file(self):
+        d = Device(
+            name="rtr01", host="10.0.0.1", username="admin",
+            use_keys=True, key_file="/home/user/.ssh/id_ed25519",
+        )
+        assert d.use_keys is True
+        assert d.key_file == "/home/user/.ssh/id_ed25519"
+
+    def test_ssh_key_without_key_file(self):
+        d = Device(
+            name="rtr01", host="10.0.0.1", username="admin",
+            use_keys=True,
+        )
+        assert d.use_keys is True
+        assert d.key_file is None
+
 
 class TestComplianceResult:
     def test_result_pass(self):

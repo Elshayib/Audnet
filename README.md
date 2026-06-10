@@ -108,6 +108,22 @@ Set the password via environment variable:
 export NET_AUDIT_PASSWORD="your-secret-password"
 ```
 
+#### SSH key-based authentication
+
+Instead of password authentication, use SSH keys:
+
+```yaml
+devices:
+  - name: core-router-01
+    host: 192.168.1.1
+    username: admin
+    use_keys: true
+    key_file: ~/.ssh/id_ed25519
+```
+
+- `use_keys: true` — enable SSH key authentication
+- `key_file` — path to the private key file (optional; uses SSH agent or default keys if omitted)
+
 ### Customize security baseline
 
 Edit `baselines/security_baseline.yaml` to match your organization's policies:
