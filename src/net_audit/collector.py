@@ -23,8 +23,16 @@ VENDOR_COMMANDS: dict[str, list[str]] = {
 }
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((NetmikoTimeoutException, OSError, ConnectionError)),
+    reraise=True,
+)
 def _do_ssh_collect(device: Device) -> list[str]:
-    """Internal SSH collection with params. Retried by decorator for transient errors."""
+    """Internal function that performs the actual SSH collection.
+    Retries transient errors (timeout, OS, connection) up to 3 times with exponential backoff.
+    """
     params = {
         "device_type": device.device_type,
         "host": device.host,
@@ -42,14 +50,8 @@ def _do_ssh_collect(device: Device) -> list[str]:
         return [cast(str, conn.send_command(cmd)) for cmd in commands]
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((NetmikoTimeoutException, OSError, ConnectionError)),
-    reraise=True,
-)
 def collect_device(device: Device) -> DeviceSnapshot:
-    """Collect data from one device. Retries transient SSH errors up to 3x."""
+    """Collect data from one device (with internal retry for transient SSH issues)."""
     logger.info("Collecting data from %s (%s)", device.name, device.host)
     try:
         raw_outputs = _do_ssh_collect(device)
@@ -62,7 +64,7 @@ def collect_device(device: Device) -> DeviceSnapshot:
             version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
             config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
         )
-    except (NetmikoTimeoutException, NetmikoAuthenticationException, OSError, ValueError) as exc:
+    except (NetmikoTimeoutException, NetmikoAuthenticationException, OSError, ValueError, ConnectionError) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,
