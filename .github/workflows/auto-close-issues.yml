@@ -1,0 +1,43 @@
+name: Auto Close Issues
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  close-linked-issues:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+
+            const issueRegex = /(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+#(\d+)/gi;
+            const matches = [...body.matchAll(issueRegex)];
+
+            if (matches.length === 0) {
+              console.log('No linked issues found in PR body.');
+              return;
+            }
+
+            for (const match of matches) {
+              const issueNumber = parseInt(match[1]);
+              try {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                console.log(`Closed issue #${issueNumber}`);
+              } catch (e) {
+                console.log(`Could not close #${issueNumber}: ${e.message}`);
+              }
+            }
