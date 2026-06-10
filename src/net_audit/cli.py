@@ -1,6 +1,5 @@
 """CLI entry point for net-audit."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -71,7 +70,7 @@ def audit(
     workers: int = typer.Option(4, help="Max parallel SSH connections"),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
     device: str | None = typer.Option(None, "--device", help="Filter to single device by name"),
-    check: list[str] | None = typer.Option(None, "--check", help="Filter to specific checks (repeat or comma-sep)"),
+    check: list[str] = typer.Option([], "--check", help="Filter to specific checks (repeatable; supports comma-separated in one arg)"),
     json_out: bool = typer.Option(False, "--json", help="Output JSON summary to stdout"),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
@@ -108,7 +107,14 @@ def audit(
 
         results = run_checks(snap, baseline_data)
         if check:
-            check_set = set(c.strip() for c in (check if isinstance(check, list) else check.split(",")))
+            check_set = set(
+                c.strip()
+                for item in check
+                for c in (str(item).split(",") if "," in str(item) else [str(item)])
+            )
+        else:
+            check_set = set()
+        if check_set:
             results = [r for r in results if r.check_name in check_set]
         overall = all(r.passed for r in results) if results else False
         reports.append(AuditReport(
