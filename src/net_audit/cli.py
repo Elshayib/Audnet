@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import structlog
 import typer
@@ -23,8 +24,8 @@ _SECRET_KEYS = frozenset({"password", "key_file", "secret", "passwd", "token"})
 
 
 def _redact_secrets(
-    _logger: logging.Logger, _method_name: str, event_dict: dict
-) -> dict:
+    _logger: logging.Logger, _method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Structlog processor that redacts sensitive values from log events."""
     for key in event_dict:
         if key.lower() in _SECRET_KEYS and event_dict[key] is not None:
@@ -35,12 +36,13 @@ def _redact_secrets(
 def _setup_logging(verbose: bool = False) -> None:
     """Configure structlog with JSON or console output and secret redaction."""
     level = logging.DEBUG if verbose else logging.INFO
-    shared_processors: list = [
+    shared_processors: list[Any] = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
         _redact_secrets,
     ]
+    renderer: Any
     if verbose:
         renderer = structlog.dev.ConsoleRenderer()
     else:
