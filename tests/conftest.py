@@ -11,7 +11,7 @@ def sample_device():
 def sample_baseline():
     return {
         "checks": {
-            "ssh_version": {"severity": "critical", "rule": "ssh_v2_only", "description": ""},
+            "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""},
             "inactive_ports": {"severity": "high", "rule": "no_open_ports",
                                "allowed_vlans": [10, 20], "description": ""},
             "ntp_config": {"severity": "medium", "rule": "ntp_approved",

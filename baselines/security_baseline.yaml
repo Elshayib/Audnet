@@ -1,5 +1,5 @@
 checks:
-  ssh_version:
+  ssh_v2_only:
     description: "SSHv2 must be enabled; SSHv1 is prohibited"
     severity: critical
     rule: ssh_v2_only

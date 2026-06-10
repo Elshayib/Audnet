@@ -52,7 +52,7 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_version:\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
             "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20, 30]\n"
             "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
@@ -126,7 +126,7 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_version:\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
             "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20]\n"
             "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
@@ -191,7 +191,7 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_version:\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
             "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20]\n"
             "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
@@ -225,6 +225,6 @@ class TestFullPipeline:
 
         passed_names = [r.check_name for r in report.checks if r.passed]
         failed_names = [r.check_name for r in report.checks if not r.passed]
-        assert "ssh_version" in passed_names
+        assert "ssh_v2_only" in passed_names
         assert "inactive_ports" in passed_names
         assert "ntp_config" in failed_names
