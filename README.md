@@ -1,5 +1,9 @@
 # Network Security & Compliance State Auditor
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/islam666/net-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/islam666/net-audit/actions/workflows/ci.yml)
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    NET-AUDIT ARCHITECTURE                       │
@@ -13,7 +17,6 @@
 │                         │            ┌────────────────────┐    │
 │                         │            │  Compliance Engine  │    │
 │                         │            │  (4 Security Rules) │    │
-│                         │            └────────┬───────────┘    │
 │                         │                     │                │
 │                         ▼                     ▼                │
 │              ┌──────────────────┐   ┌────────────────────┐    │
@@ -67,7 +70,7 @@ Every layer is independently testable with mocked responses — no real network 
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
+git clone https://github.com/islam666/net-audit.git
 cd net-audit
 
 # 2. Create virtual environment
@@ -166,6 +169,19 @@ net-audit audit \
   --workers 4
 ```
 
+### Sample Output
+
+```text
+$ net-audit audit --inventory inventories/devices.yaml
+[INFO] Loaded 2 devices from inventory
+[INFO] Connecting in parallel (workers=4)...
+core-router-01: ✓ passed (4/4 checks)
+dist-switch-02: ✗ failed (SSHv1 enabled, Gi0/3 on unauthorized VLAN 1)
+
+Report: audit_report.md + audit_report.html generated.
+Summary: 1 passed, 1 with issues.
+```
+
 ### CLI options
 
 | Option | Default | Description |
@@ -235,6 +251,10 @@ net-audit/
 3. Add the rule config to `baselines/security_baseline.yaml`
 4. Write tests in `test_compliance.py`
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, adding rules, testing, and PR workflow.
+
 ## Testing
 
 ```bash
@@ -252,3 +272,7 @@ ruff check src/ tests/
 ```
 
 All tests use mocked device responses — no real SSH connections or network hardware needed.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for credential handling and vulnerability reporting.
