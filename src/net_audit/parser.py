@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from importlib.resources import files
 
 import textfsm
 
@@ -11,16 +11,16 @@ from net_audit.exceptions import ParseError
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "textfsm_templates"
+TEMPLATE_DIR = files("net_audit.textfsm_templates")
 
 
 def _apply_template(template_name: str, raw: str) -> list[dict[str, str]]:
     template_path = TEMPLATE_DIR / template_name
-    if not template_path.exists():
-        logger.warning("TextFSM template not found: %s", template_path)
+    if not template_path.is_file():
+        logger.warning("TextFSM template not found: %s", template_name)
         return []
     try:
-        with open(template_path) as f:
+        with template_path.open() as f:
             template = textfsm.TextFSM(f)
         rows = template.ParseText(raw)
         return [dict(zip(template.header, row)) for row in rows]
