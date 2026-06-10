@@ -1,56 +1,70 @@
 # Auto-label configuration for PRs based on changed paths
-# Production-ready setup with actions/labeler
+# Format for actions/labeler@v5
 
 enhancement:
-  - src/**/*
-  - '!.github/**/*'
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**/*
+          - '!src/**/.github/**/*'
 
 bug:
-  - tests/**/*
-
-refactor:
-  - src/**/*.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**/*
 
 chore:
-  - .github/**/*
-  - pyproject.toml
-  - '*.lock'
-  - '*.toml'
-  - 'uv.lock'
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**/*
+          - pyproject.toml
+          - '*.lock'
+          - '*.toml'
+          - uv.lock
 
 documentation:
-  - '**/*.md'
-  - docs/**/*
-  - .github/ISSUE_TEMPLATE/**/*
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - docs/**/*
+          - .github/ISSUE_TEMPLATE/**/*
 
 security:
-  - pyproject.toml
-  - src/net_audit/**/*
-
-performance:
-  - src/net_audit/collector.py
-
-cli:
-  - src/net_audit/cli.py
-
-compliance:
-  - src/net_audit/compliance.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - pyproject.toml
+          - src/net_audit/**/*
 
 collector:
-  - src/net_audit/collector.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/collector.py
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/cli.py
+
+compliance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/compliance.py
 
 parser:
-  - src/net_audit/parser.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/parser.py
 
 models:
-  - src/net_audit/models.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/models.py
 
 config:
-  - src/net_audit/config.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/net_audit/config.py
 
 tests:
-  - tests/**/*
-
-multi-vendor:
-  - src/net_audit/collector.py
-  - src/net_audit/parser.py
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**/*
