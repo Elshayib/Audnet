@@ -1,6 +1,7 @@
 """CLI entry point for net-audit."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
