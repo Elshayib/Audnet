@@ -52,12 +52,12 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
-            "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
+            "  ssh_v2_only:\n    description: \"SSHv2 must be enabled\"\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  inactive_ports:\n    description: \"Secure VLANs only\"\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20, 30]\n"
-            "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
+            "  ntp_config:\n    description: \"Approved NTP servers\"\n    severity: medium\n    rule: ntp_approved\n"
             "    approved_servers: [10.0.0.50, 10.0.0.51]\n"
-            "  syslog_config:\n    severity: medium\n    rule: syslog_approved\n"
+            "  syslog_config:\n    description: \"Approved syslog servers\"\n    severity: medium\n    rule: syslog_approved\n"
             "    approved_servers: [10.0.0.60]\n"
         )
 
@@ -126,12 +126,12 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
-            "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
+            "  ssh_v2_only:\n    description: \"SSHv2 must be enabled\"\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  inactive_ports:\n    description: \"Secure VLANs only\"\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20]\n"
-            "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
+            "  ntp_config:\n    description: \"Approved NTP servers\"\n    severity: medium\n    rule: ntp_approved\n"
             "    approved_servers: [10.0.0.50]\n"
-            "  syslog_config:\n    severity: medium\n    rule: syslog_approved\n"
+            "  syslog_config:\n    description: \"Approved syslog servers\"\n    severity: medium\n    rule: syslog_approved\n"
             "    approved_servers: [10.0.0.60]\n"
         )
 
@@ -191,10 +191,10 @@ class TestFullPipeline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text(
             "checks:\n"
-            "  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n"
-            "  inactive_ports:\n    severity: high\n    rule: no_open_ports\n"
+            "  ssh_v2_only:\n    description: \"SSHv2 must be enabled\"\n    severity: critical\n    rule: ssh_v2_only\n"
+            "  inactive_ports:\n    description: \"Secure VLANs only\"\n    severity: high\n    rule: no_open_ports\n"
             "    allowed_vlans: [10, 20]\n"
-            "  ntp_config:\n    severity: medium\n    rule: ntp_approved\n"
+            "  ntp_config:\n    description: \"Approved NTP servers\"\n    severity: medium\n    rule: ntp_approved\n"
             "    approved_servers: [10.0.0.50]\n"
         )
 

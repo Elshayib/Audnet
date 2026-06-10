@@ -60,11 +60,24 @@ class TestLoadBaseline:
         bl.write_text("""
 checks:
   ssh_v2_only:
+    description: "SSHv2 must be enabled"
     severity: critical
     rule: ssh_v2_only
 """)
         baseline = load_baseline(str(bl))
         assert "ssh_v2_only" in baseline["checks"]
+        assert baseline["checks"]["ssh_v2_only"]["rule"] == "ssh_v2_only"
+
+    def test_invalid_schema_raises_config_error(self, tmp_path):
+        """Missing required fields (description, rule) raise ConfigError."""
+        bl = tmp_path / "bad.yaml"
+        bl.write_text("""
+checks:
+  bad_check:
+    severity: critical
+""")
+        with pytest.raises(ConfigError, match="Invalid baseline schema"):
+            load_baseline(str(bl))
 
     def test_file_not_found_raises_config_error(self):
         with pytest.raises(ConfigError, match="not found"):
