@@ -16,9 +16,9 @@ jobs:
             const issue = context.payload.issue;
             const title = issue.title.toLowerCase();
             const body = (issue.body || '').toLowerCase();
-            const labelsToAdd = [];
+            let labelsToAdd = [];
 
-            // Keyword-based labeling for issues (production pattern)
+            // Keyword-based labeling (production pattern)
             if (title.includes('fix') || title.includes('bug') || body.includes('bug')) {
               labelsToAdd.push('bug');
             }
@@ -41,7 +41,30 @@ jobs:
               labelsToAdd.push('chore');
             }
 
+            // Remove duplicates
+            labelsToAdd = [...new Set(labelsToAdd)];
+
             if (labelsToAdd.length > 0) {
+              // Ensure each label exists (create if missing) - robust production fix
+              for (const label of labelsToAdd) {
+                try {
+                  await github.rest.issues.getLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label
+                  });
+                } catch (error) {
+                  if (error.status === 404) {
+                    await github.rest.issues.createLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: label,
+                      color: '0366d6'  // GitHub blue
+                    });
+                  }
+                }
+              }
+
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
