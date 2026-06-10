@@ -37,7 +37,7 @@ def _write_inventory(tmp_path: Path, devices: list[dict] | None = None) -> Path:
 
 def _write_baseline(tmp_path: Path) -> Path:
     bl = tmp_path / "baseline.yaml"
-    bl.write_text("checks:\n  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n")
+    bl.write_text("checks:\n  ssh_v2_only:\n    description: \"SSHv2 must be enabled\"\n    severity: critical\n    rule: ssh_v2_only\n")
     return bl
 
 

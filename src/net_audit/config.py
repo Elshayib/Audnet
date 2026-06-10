@@ -9,8 +9,10 @@ from typing import Any
 
 import yaml
 
+from pydantic import ValidationError
+
 from net_audit.exceptions import ConfigError
-from net_audit.models import Device
+from net_audit.models import Device, SecurityBaseline
 
 logger = logging.getLogger(__name__)
 
@@ -69,4 +71,8 @@ def load_baseline(path: str) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise ConfigError("Baseline YAML must be a mapping at the top level")
-    return data
+    try:
+        baseline = SecurityBaseline(**data)
+    except ValidationError as exc:
+        raise ConfigError(f"Invalid baseline schema: {exc}") from exc
+    return baseline.model_dump()

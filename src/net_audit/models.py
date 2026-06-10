@@ -91,3 +91,15 @@ class AuditReport(BaseModel):
     @property
     def fail_count(self) -> int:
         return sum(1 for c in self.checks if not c.passed)
+
+
+class CheckConfig(BaseModel):
+    description: str
+    severity: str
+    rule: str
+    allowed_vlans: list[int] | None = None
+    approved_servers: list[str] | None = None
+
+
+class SecurityBaseline(BaseModel):
+    checks: dict[str, CheckConfig]
