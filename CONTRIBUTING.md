@@ -37,6 +37,24 @@ All tests must pass with mocked data. No real SSH required.
 - CI must be green before merge
 - Use conventional commit messages (e.g. `feat: add vlan drift check`)
 
+## Issue Linking
+
+Every PR that fixes an issue **must** include a closing keyword in its description:
+
+```
+Closes #123
+Fixes #456
+Resolves #789
+```
+
+GitHub automatically closes linked issues when the PR is merged. A PR template is provided to remind you — fill in the "Related Issues" section.
+
+If a PR partially addresses an issue, reference it without a closing keyword:
+
+```
+Related to #123
+```
+
 ## Reporting Issues
 
 Use the issue templates for bugs and feature requests.
