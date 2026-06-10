@@ -1,6 +1,6 @@
 """CLI entry point for net-audit."""
 
-import logging
+import json
 from pathlib import Path
 from typing import Any
 
@@ -69,17 +69,29 @@ def audit(
     format: str = typer.Option("both", help="Output format: md, html, or both"),
     workers: int = typer.Option(4, help="Max parallel SSH connections"),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
+    device: str | None = typer.Option(None, "--device", help="Filter to single device by name"),
+    check: list[str] | None = typer.Option(None, "--check", help="Filter to specific checks (repeat or comma-sep)"),
+    json_out: bool = typer.Option(False, "--json", help="Output JSON summary to stdout"),
 ) -> None:
-    """Run a full compliance audit against all devices."""
+    """Run a full compliance audit against all (or filtered) devices.
+
+    Supports device/check filters and JSON output for CI/automation.
+    """ 
     _setup_logging(verbose)
     console.print(f"[bold blue]net-audit v{__version__} — Starting audit...[/bold blue]")
 
     _, devices = load_inventory(inventory)
     baseline_data = load_baseline(baseline)
 
-    console.print(f"Loaded {len(devices)} devices, {len(baseline_data['checks'])} checks")
+    if device:
+        devices = [d for d in devices if d.name == device]
+        if not devices:
+            console.print(f"[red]Device '{device}' not found in inventory[/red]")
+            return
 
-    # Collect
+    console.print(f"Loaded {len(devices)} devices, {len(baseline_data.get('checks', {}))} checks")
+
+    # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
     snapshots = collect_all(devices, max_workers=workers)
 
@@ -94,7 +106,10 @@ def audit(
             continue
 
         results = run_checks(snap, baseline_data)
-        overall = all(r.passed for r in results)
+        if check:
+            check_set = set(c.strip() for c in (check if isinstance(check, list) else check.split(",")))
+            results = [r for r in results if r.check_name in check_set]
+        overall = all(r.passed for r in results) if results else False
         reports.append(AuditReport(
             device_name=snap.device_name, overall_pass=overall, checks=results))
 
@@ -119,6 +134,10 @@ def audit(
         html_path = Path(f"{output}.html")
         html_path.write_text(render_html(reports))
         console.print(f"[green]HTML report: {html_path}[/green]")
+
+    if json_out:
+        json_data = [r.model_dump(mode="json") for r in reports]
+        console.print_json(json_data)
 
 
 @app.command()

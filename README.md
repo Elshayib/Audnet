@@ -1,4 +1,4 @@
-# Network Security & Compliance State Auditor
+# Network Security & Compliance Auditor
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    NET-AUDIT ARCHITECTURE                       │
-│                                                                 │
+│                                                                 
 │  ┌──────────┐    ┌──────────────┐    ┌────────────────────┐    │
 │  │  YAML     │───▶│  Collector   │───▶│  TextFSM Parser    │    │
 │  │  Inventory│    │  (Netmiko +  │    │  (CLI → JSON)      │    │
@@ -42,19 +42,19 @@ that bypass security baselines — enabling SSHv1, leaving switchports on defaul
 or pointing NTP/syslog to unauthorized servers. Traditional auditing is manual,
 error-prone, and doesn't scale.
 
-**net-audit** solves this by automating the entire pipeline: connecting to infrastructure
-via SSH, pulling live configurations, parsing them into structured data, and running
-deterministic compliance checks against a hardened security blueprint.
+**net-audit** solves this by automating SSH-based compliance audits against security baselines.
+This detects drift in real-time and prevents future drift by enforcing hardened policies.
 
 ## Solution
 
 A Python CLI tool that:
 
-1. **Connects in parallel** to multiple routers/switches via SSH (Netmiko + ThreadPool)
+1. **Connects in parallel** to multiple routers/switches via SSH (Netmiko + ThreadPool, with retries)
 2. **Pulls live state** — `show ip interface brief`, `show version`, `show running-config`
 3. **Parses unstructured CLI** into clean JSON using TextFSM templates
 4. **Audits against baselines** — flags SSHv1, unauthorized VLANs, rogue NTP/syslog servers
 5. **Generates reports** — professional Markdown and HTML with pass/fail summaries
+6. **Supports filters & JSON** for targeted runs and CI integration
 
 Every layer is independently testable with mocked responses — no real network hardware required.
 
@@ -86,7 +86,7 @@ python -c "import net_audit; print(net_audit.__version__)"
 
 # 5. Run the test suite
 pytest tests/ -v
-# Expected: 31 passed
+# Expected: 31+ passed
 ```
 
 ### Configure device inventory
@@ -169,6 +169,14 @@ net-audit audit \
   --workers 4
 ```
 
+### Advanced usage (new in this release)
+
+Filter to one device or specific checks, output JSON for scripting:
+
+```bash
+net-audit audit --device core-router-01 --check ssh_v2_only,ntp_config --json
+```
+
 ### Sample Output
 
 ```text
@@ -191,6 +199,9 @@ Summary: 1 passed, 1 with issues.
 | `--output` | `audit_report` | Output file prefix |
 | `--format` | `both` | Output format: `md`, `html`, or `both` |
 | `--workers` | `4` | Max parallel SSH connections |
+| `--device` | (all) | Filter to single device by name |
+| `--check` | (all) | Filter to specific checks (repeatable) |
+| `--json` | false | Output JSON summary |
 
 ### Output
 
@@ -198,6 +209,7 @@ The tool produces:
 - **Terminal summary** — Rich table with per-device pass/fail status
 - **audit_report.md** — Markdown report with detailed findings table
 - **audit_report.html** — Styled HTML report for sharing
+- **JSON** (with --json) — Machine-readable for CI/CD
 
 ## Project Structure
 
@@ -209,8 +221,8 @@ net-audit/
 │   ├── __init__.py             # Package init, version
 │   ├── cli.py                  # Typer CLI entry point
 │   ├── config.py               # YAML inventory/baseline loader with env resolution
-│   ├── models.py               # Pydantic data models
-│   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool)
+│   ├── models.py               # Pydantic data models (incl. SecurityBaseline)
+│   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries + multi-vendor start)
 │   ├── parser.py               # TextFSM parser (CLI → structured JSON)
 │   ├── compliance.py           # Rule engine (4 security checks)
 │   └── reporter.py             # Jinja2 report generator (Markdown + HTML)
@@ -232,7 +244,7 @@ net-audit/
     ├── test_collector.py       # 3 tests — SSH collection, error handling
     ├── test_parser.py          # 6 tests — TextFSM parsing for all 3 commands
     ├── test_compliance.py      # 9 tests — all 4 rule types (pass/fail)
-    └── test_reporter.py        # 4 tests — Markdown/HTML rendering
+    └── test_reporter.py          # 4 tests — Markdown/HTML rendering
 ```
 
 ## Compliance Checks
