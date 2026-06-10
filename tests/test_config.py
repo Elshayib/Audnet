@@ -59,12 +59,12 @@ class TestLoadBaseline:
         bl = tmp_path / "baseline.yaml"
         bl.write_text("""
 checks:
-  ssh_version:
+  ssh_v2_only:
     severity: critical
     rule: ssh_v2_only
 """)
         baseline = load_baseline(str(bl))
-        assert "ssh_version" in baseline["checks"]
+        assert "ssh_v2_only" in baseline["checks"]
 
     def test_file_not_found_raises_config_error(self):
         with pytest.raises(ConfigError, match="not found"):

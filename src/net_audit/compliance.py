@@ -18,23 +18,23 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
     if not ssh_version_lines:
         logger.warning("%s: no 'ip ssh version' directive found", snapshot.device_name)
         return ComplianceResult(
-            check_name="ssh_version", passed=False, severity=sev,
+            check_name="ssh_v2_only", passed=False, severity=sev,
             detail="No SSH version configuration found — must explicitly set 'ip ssh version 2'")
 
     for line in ssh_version_lines:
         if "ip ssh version 1" in line:
             logger.info("%s: SSHv1 detected", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_version", passed=False, severity=sev,
+                check_name="ssh_v2_only", passed=False, severity=sev,
                 detail="SSHv1 is configured — prohibited. Use 'ip ssh version 2'")
         if "ip ssh version 2" in line:
             logger.info("%s: SSHv2 confirmed", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_version", passed=True, severity=sev,
+                check_name="ssh_v2_only", passed=True, severity=sev,
                 detail="SSHv2 is explicitly enabled")
 
     return ComplianceResult(
-        check_name="ssh_version", passed=False, severity=sev,
+        check_name="ssh_v2_only", passed=False, severity=sev,
         detail=f"Unexpected SSH version config: {'; '.join(ssh_version_lines)}")
 
 

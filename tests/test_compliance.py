@@ -15,20 +15,20 @@ def _snap(name, config_lines):
 class TestSshVersion:
     def test_pass(self):
         snap = _snap("rtr01", ["ip ssh version 2"])
-        bl = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
-        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_version"][0]
+        bl = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
         assert r.passed is True
 
     def test_fail_v1(self):
         snap = _snap("rtr01", ["ip ssh version 1"])
-        bl = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
-        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_version"][0]
+        bl = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
         assert r.passed is False
 
     def test_fail_missing(self):
         snap = _snap("rtr01", ["hostname rtr01"])
-        bl = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
-        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_version"][0]
+        bl = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
         assert r.passed is False
 
 
@@ -139,12 +139,12 @@ class TestMixedResults:
             "ntp server 8.8.8.8",
         ])
         bl = {"checks": {
-            "ssh_version": {"severity": "critical", "rule": "ssh_v2_only", "description": ""},
+            "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""},
             "ntp_config": {"severity": "medium", "rule": "ntp_approved",
                            "approved_servers": ["10.0.0.50"], "description": ""},
         }}
         results = run_checks(snap, bl)
-        ssh = [x for x in results if x.check_name == "ssh_version"][0]
+        ssh = [x for x in results if x.check_name == "ssh_v2_only"][0]
         ntp = [x for x in results if x.check_name == "ntp_config"][0]
         assert ssh.passed is True
         assert ntp.passed is False

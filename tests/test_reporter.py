@@ -9,7 +9,7 @@ def _make_report(name, overall, checks):
 class TestRenderMarkdown:
     def test_contains_device_name(self):
         report = _make_report("rtr01", True, [
-            ComplianceResult(check_name="ssh_version", passed=True,
+            ComplianceResult(check_name="ssh_v2_only", passed=True,
                              severity="critical", detail="OK"),
         ])
         md = render_markdown([report])
@@ -18,7 +18,7 @@ class TestRenderMarkdown:
 
     def test_contains_fail(self):
         report = _make_report("rtr01", False, [
-            ComplianceResult(check_name="ssh_version", passed=False,
+            ComplianceResult(check_name="ssh_v2_only", passed=False,
                              severity="critical", detail="SSHv1 only"),
         ])
         md = render_markdown([report])
@@ -28,7 +28,7 @@ class TestRenderMarkdown:
 class TestRenderHtml:
     def test_contains_device_name(self):
         report = _make_report("rtr01", True, [
-            ComplianceResult(check_name="ssh_version", passed=True,
+            ComplianceResult(check_name="ssh_v2_only", passed=True,
                              severity="critical", detail="OK"),
         ])
         html = render_html([report])
@@ -37,7 +37,7 @@ class TestRenderHtml:
 
     def test_contains_fail_class(self):
         report = _make_report("rtr01", False, [
-            ComplianceResult(check_name="ssh_version", passed=False,
+            ComplianceResult(check_name="ssh_v2_only", passed=False,
                              severity="critical", detail="SSHv1 only"),
         ])
         html = render_html([report])

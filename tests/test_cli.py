@@ -37,7 +37,7 @@ def _write_inventory(tmp_path: Path, devices: list[dict] | None = None) -> Path:
 
 def _write_baseline(tmp_path: Path) -> Path:
     bl = tmp_path / "baseline.yaml"
-    bl.write_text("checks:\n  ssh_version:\n    severity: critical\n    rule: ssh_v2_only\n")
+    bl.write_text("checks:\n  ssh_v2_only:\n    severity: critical\n    rule: ssh_v2_only\n")
     return bl
 
 
@@ -55,7 +55,7 @@ class TestCliAudit:
     def test_audit_pass(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
                                                  username="admin", password="x")])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
@@ -71,7 +71,7 @@ class TestCliAudit:
     def test_audit_fail(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
                                                  username="admin", password="x")])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 1"])]
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
@@ -86,7 +86,7 @@ class TestCliAudit:
     def test_audit_collection_error(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
                                                  username="admin", password="x")])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         snap = DeviceSnapshot(device_name="rtr01", interfaces=ParsedInterfaces(),
                               version=ParsedVersion(), config=ParsedConfig(),
                               collection_error="Connection timed out")
@@ -105,7 +105,7 @@ class TestCliAudit:
     def test_audit_html_only(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
                                                  username="admin", password="x")])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)
@@ -124,7 +124,7 @@ class TestCliAudit:
             MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
             MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
         ])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         mock_collect.return_value = [
             _mock_snapshot("rtr01", ["ip ssh version 2"]),
             _mock_snapshot("sw01", ["ip ssh version 1"]),
@@ -143,7 +143,7 @@ class TestCliAudit:
     def test_audit_verbose_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
                                                  username="admin", password="x")])
-        mock_bl.return_value = {"checks": {"ssh_version": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
         mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
         inv = _write_inventory(tmp_path)
         bl = _write_baseline(tmp_path)

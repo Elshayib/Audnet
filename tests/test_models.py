@@ -60,7 +60,7 @@ class TestDevice:
 
 class TestComplianceResult:
     def test_result_pass(self):
-        r = ComplianceResult(check_name="ssh_version", passed=True,
+        r = ComplianceResult(check_name="ssh_v2_only", passed=True,
                              severity="critical", detail="SSHv2 enabled")
         assert r.passed is True
 
@@ -75,7 +75,7 @@ class TestAuditReport:
         report = AuditReport(
             device_name="rtr01", overall_pass=True,
             checks=[
-                ComplianceResult(check_name="ssh_version", passed=True,
+                ComplianceResult(check_name="ssh_v2_only", passed=True,
                                  severity="critical", detail="OK"),
                 ComplianceResult(check_name="inactive_ports", passed=True,
                                  severity="high", detail="OK"),
@@ -87,7 +87,7 @@ class TestAuditReport:
         report = AuditReport(
             device_name="rtr01", overall_pass=False,
             checks=[
-                ComplianceResult(check_name="ssh_version", passed=False,
+                ComplianceResult(check_name="ssh_v2_only", passed=False,
                                  severity="critical", detail="SSHv1 only"),
                 ComplianceResult(check_name="inactive_ports", passed=True,
                                  severity="high", detail="OK"),
