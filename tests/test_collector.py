@@ -150,3 +150,143 @@ class TestCollectAll:
         devices = [_make_device("rtr01"), _make_device("rtr02", "10.0.0.2")]
         results = collect_all(devices, max_workers=2)
         assert len(results) == 2
+
+
+class TestRetry:
+    """Tests for tenacity retry logic on transient SSH errors."""
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_timeout_then_succeeds(self, mock_cls) -> None:
+        """Transient timeout on first two attempts, success on third."""
+        from netmiko.exceptions import NetmikoTimeoutException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+        original_side_effect = [
+            NetmikoTimeoutException("timeout 1"),
+            NetmikoTimeoutException("timeout 2"),
+        ]
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            if call_count < 2:
+                call_count += 1
+                raise original_side_effect[call_count - 1]
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_exhausted_returns_error(self, mock_cls) -> None:
+        """All 3 attempts fail with transient error → collection_error set."""
+        from netmiko.exceptions import NetmikoTimeoutException
+
+        mock_cls.side_effect = NetmikoTimeoutException("connection timed out")
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is not None
+        assert "connection timed out" in snap.collection_error
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_no_retry_on_auth_failure(self, mock_cls) -> None:
+        """Authentication failure is not retried (not in retry_if_exception_type)."""
+        from netmiko.exceptions import NetmikoAuthenticationException
+
+        mock_cls.side_effect = NetmikoAuthenticationException("auth failed")
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is not None
+        assert "auth failed" in snap.collection_error
+        # Should have been called exactly once (no retries)
+        assert mock_cls.call_count == 1
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_os_error(self, mock_cls) -> None:
+        """OSError is retried as it's in the retry exception types."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("Network unreachable")
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+
+class TestVendorCommands:
+    """Tests for VENDOR_COMMANDS multi-vendor support."""
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_unknown_device_type_uses_cisco_ios_fallback(self, mock_cls) -> None:
+        """Unknown device_type falls back to cisco_ios commands."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        device = Device(
+            name="rtr01", host="10.0.0.1", username="admin", password="x",
+            device_type="arista_eos",
+        )
+        snap = collect_device(device)
+        assert snap.collection_error is None
+        # Verify cisco_ios commands were sent (fallback)
+        assert mock_conn.send_command.call_count == 3
+        cmds = [c.args[0] for c in mock_conn.send_command.call_args_list]
+        assert "show version" in cmds
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_known_device_type_uses_vendor_commands(self, mock_cls) -> None:
+        """Known device_type (cisco_ios) uses VENDOR_COMMANDS entries."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        cmds = [c.args[0] for c in mock_conn.send_command.call_args_list]
+        assert "show ip interface brief" in cmds
+        assert "show version" in cmds
+        assert "show running-config" in cmds

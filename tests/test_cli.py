@@ -151,3 +151,90 @@ class TestCliAudit:
         result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
                                      "--output", str(out), "--verbose"])
         assert result.exit_code == 0, f"Output: {result.output}"
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_audit_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--device filters to a single device by name."""
+        mock_inv.return_value = ({}, [
+            MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
+            MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
+        ])
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_collect.return_value = [
+            _mock_snapshot("rtr01", ["ip ssh version 2"]),
+        ]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
+                                     "--output", str(out), "--device", "rtr01"])
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "rtr01" in result.output
+        # sw01 should not appear since we filtered to rtr01
+        assert "sw01" not in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_audit_device_filter_not_found(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--device with nonexistent name prints error and exits."""
+        mock_inv.return_value = ({}, [
+            MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
+        ])
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_collect.return_value = []
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
+                                     "--output", str(out), "--device", "nonexistent"])
+        assert result.exit_code == 0
+        assert "not found" in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_audit_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--check filters results to specified check names."""
+        mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
+                                                 username="admin", password="x")])
+        mock_bl.return_value = {"checks": {
+            "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"},
+            "inactive_ports": {"severity": "high", "rule": "no_open_ports"},
+        }}
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
+                                     "--output", str(out), "--check", "ssh_v2_only"])
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "PASS" in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_audit_json_output(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--json outputs a JSON summary to stdout."""
+        mock_inv.return_value = ({}, [MagicMock(name="rtr01", host="10.0.0.1",
+                                                 username="admin", password="x")])
+        mock_bl.return_value = {"checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}}
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["audit", "--inventory", str(inv), "--baseline", str(bl),
+                                     "--output", str(out), "--json"])
+        assert result.exit_code == 0, f"Output: {result.output}"
+        # JSON output should be parseable
+        import json as _json
+        # Find the JSON array in output (after the table output)
+        json_start = result.output.find("[")
+        assert json_start != -1, "No JSON array found in output"
+        parsed = _json.loads(result.output[json_start:])
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        assert parsed[0]["device_name"] == "rtr01"
+        assert parsed[0]["overall_pass"] is True

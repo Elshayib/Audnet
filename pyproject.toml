@@ -74,6 +74,7 @@ mypy_path = "src"
 module = [
     "textfsm.*",
     "yaml.*",
+    "tenacity.*",
 ]
 ignore_missing_imports = true
 

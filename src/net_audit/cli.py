@@ -144,7 +144,8 @@ def audit(
 
     if json_out:
         json_data = [r.model_dump(mode="json") for r in reports]
-        console.print_json(json_data)
+        import json as _json
+        console.print_json(_json.dumps(json_data))
 
 
 @app.command()
