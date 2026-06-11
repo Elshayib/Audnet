@@ -515,6 +515,7 @@ class TestEmptyAndCommentLines:
         assert r.passed is True
 
     def test_ssh_with_surrounding_noise(self):
+        """SSH check works when surrounded by unrelated config lines."""
         snap = _snap(
             "rtr01",
             [
@@ -531,3 +532,193 @@ class TestEmptyAndCommentLines:
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
         assert r.passed is True
+
+
+class TestComplianceEdgeCases:
+    """Edge-case tests for compliance checks covering missed branches."""
+
+    def test_ssh_unexpected_line_fails(self):
+        """SSH line that matches neither ok_value nor fail_value fails."""
+        snap = _snap("rtr01", ["ip ssh version 3"])
+        bl = {
+            "checks": {
+                "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
+        assert r.passed is False
+        assert "unexpected" in r.detail.lower() or "version 3" in r.detail
+
+    def test_vendor_patterns_default_override(self):
+        """vendor_patterns with 'default' key overrides base patterns."""
+        snap = _snap("rtr01", ["custom-ssh directive"])
+        bl = {
+            "checks": {
+                "ssh_v2_only": {
+                    "severity": "critical",
+                    "rule": "ssh_v2_only",
+                    "description": "",
+                    "vendor_patterns": {
+                        "default": {
+                            "match": "custom-ssh",
+                            "ok_value": "directive",
+                            "fail_value": "bad",
+                            "ok_detail": "ok",
+                            "fail_detail_v1": "v1",
+                            "fail_detail_missing": "missing",
+                            "fail_detail_unexpected": "unexpected",
+                        }
+                    },
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
+        assert r.passed is True
+
+    def test_vendor_patterns_non_dict_ignored(self):
+        """vendor_patterns that is not a dict is safely ignored."""
+        snap = _snap("rtr01", ["ip ssh version 2"])
+        bl = {
+            "checks": {
+                "ssh_v2_only": {
+                    "severity": "critical",
+                    "rule": "ssh_v2_only",
+                    "description": "",
+                    "vendor_patterns": "not-a-dict",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
+        assert r.passed is True
+
+    def test_vendor_patterns_default_non_dict_ignored(self):
+        """vendor_patterns default that is not a dict is safely ignored."""
+        snap = _snap("rtr01", ["ip ssh version 2"])
+        bl = {
+            "checks": {
+                "ssh_v2_only": {
+                    "severity": "critical",
+                    "rule": "ssh_v2_only",
+                    "description": "",
+                    "vendor_patterns": {"default": "not-a-dict"},
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
+        assert r.passed is True
+
+    def test_open_ports_short_interface_line_skipped(self):
+        """Interface line with fewer than 4 parts is skipped."""
+        snap = _snap("rtr01", ["interface GigabitEthernet0/1", " switchport"])
+        bl = {
+            "checks": {
+                "inactive_ports": {
+                    "severity": "high",
+                    "rule": "no_open_ports",
+                    "description": "",
+                    "allowed_vlans": [10, 20],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "inactive_ports"][0]
+        assert r.passed is True
+
+    def test_open_ports_interface_name_not_found(self):
+        """When no interface prefix line is found before a VLAN line, iface is 'unknown'."""
+        snap = _snap("rtr01", [" switchport access vlan 99"])
+        bl = {
+            "checks": {
+                "inactive_ports": {
+                    "severity": "high",
+                    "rule": "no_open_ports",
+                    "description": "",
+                    "allowed_vlans": [10, 20],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "inactive_ports"][0]
+        assert r.passed is False
+        assert "unknown" in r.detail
+
+    def test_ntp_short_line_no_valid_servers(self):
+        """NTP line with fewer than 3 parts is skipped, no valid servers found."""
+        snap = _snap("rtr01", ["ntp server"])
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        # Short line skipped, no valid servers -> violations empty -> passes
+        assert r.passed is True
+
+    def test_syslog_short_line_no_valid_servers(self):
+        """Syslog line with fewer than 3 parts is skipped, no valid servers found."""
+        snap = _snap("rtr01", ["logging host"])
+        bl = {
+            "checks": {
+                "syslog_config": {
+                    "severity": "high",
+                    "rule": "syslog_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "syslog_config"][0]
+        assert r.passed is True
+
+    def test_ntp_all_servers_approved(self):
+        """All NTP servers in approved list passes."""
+        snap = _snap(
+            "rtr01",
+            ["ntp server 10.0.0.1", "ntp server 10.0.0.2"],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1", "10.0.0.2"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        assert r.passed is True
+
+    def test_syslog_all_servers_approved(self):
+        """All syslog servers in approved list passes."""
+        snap = _snap(
+            "rtr01",
+            ["logging host 10.0.0.1", "logging host 10.0.0.2"],
+        )
+        bl = {
+            "checks": {
+                "syslog_config": {
+                    "severity": "high",
+                    "rule": "syslog_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1", "10.0.0.2"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "syslog_config"][0]
+        assert r.passed is True
+
+    def test_multiple_ssh_lines_first_wins(self):
+        """When multiple SSH version lines exist, first match wins."""
+        snap = _snap("rtr01", ["ip ssh version 1", "ip ssh version 2"])
+        bl = {
+            "checks": {
+                "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
+        # fail_value "version 1" is checked before ok_value "version 2"
+        assert r.passed is False
