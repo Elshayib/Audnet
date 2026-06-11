@@ -1,5 +1,6 @@
 """CLI entry point for net-audit."""
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -109,11 +110,15 @@ def audit(
 
         results = run_checks(snap, baseline_data)
         if check:
-            check_set = set(
-                c.strip()
-                for item in check
-                for c in (str(item).split(",") if "," in str(item) else [str(item)])
-            )
+            check_set = {c.strip() for item in check for c in item.split(",")}
+            # Validate: warn about unknown check names
+            available = set(baseline_data.get("checks", {}).keys())
+            unknown = check_set - available
+            if unknown:
+                console.print(
+                    f"[yellow]Warning: unknown check(s) {', '.join(sorted(unknown))} — "
+                    f"available: {', '.join(sorted(available))}[/yellow]"
+                )
         else:
             check_set = set()
         if check_set:
@@ -147,9 +152,7 @@ def audit(
 
     if json_out:
         json_data = [r.model_dump(mode="json") for r in reports]
-        import json as _json
-
-        console.print_json(_json.dumps(json_data))
+        console.print_json(json.dumps(json_data))
 
 
 @app.command()
