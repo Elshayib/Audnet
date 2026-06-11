@@ -74,7 +74,8 @@ git clone https://github.com/islam666/net-audit.git
 cd net-audit
 
 # 2. Install dependencies (uses uv.lock for reproducible installs)
-uv sync --group dev
+uv venv
+uv pip install -e ".[dev]"
 
 # 3. Activate virtual environment
 source .venv/bin/activate
@@ -91,7 +92,7 @@ pytest tests/ -v
 # Expected: 200+ passed
 ```
 
-`uv sync` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
+`uv pip install -e ".[dev]"` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
 
 ### Configure device inventory
 
