@@ -578,3 +578,131 @@ class TestCollectAllTimeout:
             devices = [_make_device("rtr01"), _make_device("rtr02", "10.0.0.2")]
             results = collect_all(devices, max_workers=2)
             assert len(results) == 2
+
+
+class TestCollectorEdgeCases:
+    """Edge-case tests for collector retry and error handling."""
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retry_exhausted_connection_exception(self, mock_cls):
+        """ConnectionException is retried 3 times then returns error snapshot."""
+        from netmiko.exceptions import ConnectionException
+
+        mock_cls.side_effect = ConnectionException("Connection refused")
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "Connection refused" in result.collection_error
+        assert mock_cls.call_count == 3
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retry_exhausted_read_exception(self, mock_cls):
+        """ReadException is retried 3 times then returns error snapshot."""
+        from netmiko.exceptions import ReadException
+
+        mock_cls.side_effect = ReadException("Read timeout")
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "Read timeout" in result.collection_error
+        assert mock_cls.call_count == 3
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retry_exhausted_parsing_exception(self, mock_cls):
+        """NetmikoParsingException is retried 3 times then returns error snapshot."""
+        from netmiko.exceptions import NetmikoParsingException
+
+        mock_cls.side_effect = NetmikoParsingException("Parse error")
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "Parse error" in result.collection_error
+        assert mock_cls.call_count == 3
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_no_retry_on_auth_failure(self, mock_cls):
+        """AuthenticationException is NOT retried (not transient)."""
+        from netmiko.exceptions import NetmikoAuthenticationException
+
+        mock_cls.side_effect = NetmikoAuthenticationException("Auth failed")
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "Auth failed" in result.collection_error
+        # Should only be called once — no retries
+        assert mock_cls.call_count == 1
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_no_retry_on_config_invalid(self, mock_cls):
+        """ConfigInvalidException is NOT retried."""
+        from netmiko.exceptions import ConfigInvalidException
+
+        mock_cls.side_effect = ConfigInvalidException("Invalid config")
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "Invalid config" in result.collection_error
+        assert mock_cls.call_count == 1
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retry_then_success(self, mock_cls):
+        """Transient error on first attempt, success on retry."""
+        from netmiko.exceptions import ReadException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.send_command.side_effect = [
+            "show interfaces",
+            "show version",
+            "show running-config",
+        ]
+        mock_cls.side_effect = [ReadException("timeout"), mock_conn]
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is None
+        assert result.device_name == "rtr01"
+        assert mock_cls.call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_value_error_returns_error_snapshot(self, mock_cls):
+        """ValueError during collection returns error snapshot."""
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.send_command.side_effect = ValueError("unexpected format")
+        mock_cls.return_value = mock_conn
+        dev = _make_device("rtr01")
+        result = collect_device(dev)
+        assert result.collection_error is not None
+        assert "unexpected format" in result.collection_error
+
+    def test_collect_all_empty_device_list(self):
+        """collect_all with empty device list returns empty results."""
+        results = collect_all([], max_workers=2)
+        assert results == []
+
+    @patch("net_audit.collector.collect_device")
+    def test_collect_all_mixed_success_and_error(self, mock_collect):
+        """collect_all returns both successful and error snapshots."""
+        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
+        mock_collect.side_effect = [
+            DeviceSnapshot(
+                device_name="rtr01",
+                interfaces=ParsedInterfaces(interfaces=[]),
+                version=ParsedVersion(),
+                config=ParsedConfig(lines=["ip ssh version 2"]),
+            ),
+            DeviceSnapshot(
+                device_name="rtr02",
+                interfaces=ParsedInterfaces(),
+                version=ParsedVersion(),
+                config=ParsedConfig(),
+                collection_error="Connection timed out",
+            ),
+        ]
+        devices = [_make_device("rtr01", "10.0.0.1"), _make_device("rtr02", "10.0.0.2")]
+        results = collect_all(devices, max_workers=2)
+        assert len(results) == 2
+        by_name = {r.device_name: r for r in results}
+        assert by_name["rtr01"].collection_error is None
+        assert by_name["rtr02"].collection_error is not None
