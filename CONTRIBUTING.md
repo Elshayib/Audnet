@@ -55,6 +55,65 @@ If a PR partially addresses an issue, reference it without a closing keyword:
 Related to #123
 ```
 
+## Release Process
+
+net-audit uses [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH).
+
+### When to release
+
+Create a release when a meaningful set of changes has accumulated on `master` — typically after merging one or more feature/fix PRs.
+
+### Steps
+
+1. **Update `CHANGELOG.md`**: move items from `[Unreleased]` to a new version section:
+
+   ```markdown
+   ## [0.7.0] - 2026-06-11
+
+   ### Added
+   - New feature X (#35)
+   ```
+
+2. **Commit the changelog update**:
+
+   ```bash
+   git add CHANGELOG.md
+   git commit -m "chore(release): prepare v0.7.0"
+   ```
+
+3. **Create an annotated tag**:
+
+   ```bash
+   git tag -a v0.7.0 -m "Release v0.7.0"
+   ```
+
+4. **Push the tag**:
+
+   ```bash
+   git push origin v0.7.0
+   ```
+
+5. **Create a GitHub release** (optional but recommended):
+   - Go to https://github.com/islam666/net-audit/releases/new
+   - Select the tag
+   - Title: `v0.7.0`
+   - Copy the relevant CHANGELOG section into the release notes
+   - Publish
+
+### Versioning guidelines
+
+| Change type | Version bump | Example |
+|-------------|-------------|---------|
+| Bug fix, docs, chore | PATCH (`0.0.Z`) | `0.6.0` → `0.6.1` |
+| New feature, non-breaking | MINOR (`0.Y.0`) | `0.6.0` → `0.7.0` |
+| Breaking change | MAJOR (`N.0.0`) | `0.6.0` → `1.0.0` |
+
+### Changelog maintenance
+
+- Every PR that users should know about must include a CHANGELOG entry under `[Unreleased]`
+- Group entries under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`
+- Reference the PR number at the end of each entry: `description (#NN)`
+
 ## Reporting Issues
 
 Use the issue templates for bugs and feature requests.
