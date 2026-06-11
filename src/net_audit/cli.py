@@ -83,15 +83,20 @@ def audit(
         "--dry-run",
         help="Validate config and show what would be audited without connecting to devices",
     ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Fail if any device has a plaintext password (no ${ENV_VAR} reference)",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
-    Supports device/check filters, JSON output, and dry-run mode for CI/automation.
+    Supports device/check filters, JSON output, dry-run mode, and strict secret handling for CI/automation.
     """
     _setup_logging(verbose)
     console.print(f"[bold blue]net-audit v{__version__} — Starting audit...[/bold blue]")
 
-    _, devices = load_inventory(inventory)
+    _, devices = load_inventory(inventory, strict=strict)
     baseline_data = load_baseline(baseline)
 
     if device:

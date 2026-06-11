@@ -420,4 +420,66 @@ All tests use mocked device responses — no real SSH connections or network har
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for credential handling and vulnerability reporting.
+net-audit takes credential handling seriously. Passwords are stored as `SecretStr` (Pydantic) and are never rendered in logs or output.
+
+### Quick Start: Environment Variables
+
+Use `${ENV_VAR}` placeholders in inventory files:
+
+```yaml
+devices:
+  - name: core-switch-01
+    host: 10.0.0.1
+    password: "${NET_AUDIT_PASSWORD}"
+```
+
+```bash
+export NET_AUDIT_PASSWORD="your-secret"
+net-audit audit
+```
+
+### Production: External Secret Stores
+
+For production, use a dedicated secret manager instead of environment variables:
+
+| Store             | Example                                      |
+| ----------------- | -------------------------------------------- |
+| HashiCorp Vault   | `export NET_AUDIT_PASSWORD=$(vault kv get ...)` |
+| AWS Secrets Mgr   | `export NET_AUDIT_PASSWORD=$(aws secretsmanager ...)` |
+| 1Password CLI     | `export NET_AUDIT_PASSWORD=$(op read ...)`   |
+| Python keyring    | `keyring.set_password("net-audit", ...)`     |
+
+See [SECURITY.md](SECURITY.md) for detailed integration examples.
+
+### Strict Mode (CI/CD)
+
+Use `--strict` in CI pipelines to enforce that no plaintext passwords exist in inventory files:
+
+```bash
+net-audit audit --strict
+```
+
+This fails with a `ConfigError` if any device has a password that is not a `${ENV_VAR}` reference. Without `--strict`, a warning is logged instead.
+
+### SSH Key Authentication
+
+Prefer SSH keys over passwords:
+
+```yaml
+devices:
+  - name: core-switch-01
+    host: 10.0.0.1
+    use_keys: true
+    key_file: ~/.ssh/id_ed25519
+```
+
+### Checklist
+
+- **Never** commit inventory files with plaintext passwords
+- Add `inventories/*.yaml` to `.gitignore` (commit only `inventories/example.yaml`)
+- Use `.env` for local development (add `.env` to `.gitignore`)
+- Use `--strict` in CI/CD
+- Prefer SSH key authentication
+- Rotate credentials regularly
+
+See [SECURITY.md](SECURITY.md) for the full security policy, vulnerability reporting, and responsible disclosure.

@@ -650,3 +650,34 @@ class TestCliDryRun:
         )
         assert result.exit_code == 0
         assert "config and baseline are valid" in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_strict_flag_passed_to_load_inventory(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--strict is forwarded to load_inventory."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--strict",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_inv.assert_called_once_with(str(inv), strict=True)
