@@ -23,6 +23,7 @@ def _resolve_env(value: str) -> str:
     def replacer(match: re.Match[str]) -> str:
         var = match.group(1)
         return os.environ.get(var, match.group(0))
+
     return _ENV_RE.sub(replacer, value)
 
 

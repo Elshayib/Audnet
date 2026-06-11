@@ -70,13 +70,17 @@ def audit(
     workers: int = typer.Option(4, help="Max parallel SSH connections"),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
     device: str | None = typer.Option(None, "--device", help="Filter to single device by name"),
-    check: list[str] = typer.Option([], "--check", help="Filter to specific checks (repeatable; supports comma-separated in one arg)"),
+    check: list[str] = typer.Option(
+        [],
+        "--check",
+        help="Filter to specific checks (repeatable; supports comma-separated in one arg)",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Output JSON summary to stdout"),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
     Supports device/check filters and JSON output for CI/automation.
-    """ 
+    """
     _setup_logging(verbose)
     console.print(f"[bold blue]net-audit v{__version__} — Starting audit...[/bold blue]")
 
@@ -100,9 +104,7 @@ def audit(
     for snap in snapshots:
         if snap.collection_error:
             console.print(f"[red]ERROR {snap.device_name}: {snap.collection_error}[/red]")
-            reports.append(AuditReport(
-                device_name=snap.device_name, overall_pass=False,
-                checks=[]))
+            reports.append(AuditReport(device_name=snap.device_name, overall_pass=False, checks=[]))
             continue
 
         results = run_checks(snap, baseline_data)
@@ -117,8 +119,9 @@ def audit(
         if check_set:
             results = [r for r in results if r.check_name in check_set]
         overall = all(r.passed for r in results) if results else False
-        reports.append(AuditReport(
-            device_name=snap.device_name, overall_pass=overall, checks=results))
+        reports.append(
+            AuditReport(device_name=snap.device_name, overall_pass=overall, checks=results)
+        )
 
     # Terminal summary
     table = Table(title="Audit Results")
@@ -145,6 +148,7 @@ def audit(
     if json_out:
         json_data = [r.model_dump(mode="json") for r in reports]
         import json as _json
+
         console.print_json(_json.dumps(json_data))
 
 

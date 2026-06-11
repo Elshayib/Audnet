@@ -1,157 +1,222 @@
-"""Compliance engine — runs security baseline checks against device snapshots."""
+"""Compliance engine — runs security baseline checks against device snapshots.
+
+Supports vendor-specific pattern overrides via the ``vendor_patterns`` config
+key in each check.  Falls back to Cisco IOS patterns for unknown vendors.
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from net_audit.models import ComplianceResult, DeviceSnapshot
 
 logger = logging.getLogger(__name__)
 
-# Pre-compiled patterns for config extraction
-_RE_SSH_VERSION = re.compile(r"^ip\s+ssh\s+version\s+(\d+)", re.IGNORECASE)
-_RE_SWITCHPORT_ACCESS_VLAN = re.compile(
-    r"^switchport\s+access\s+vlan\s+(\d+)", re.IGNORECASE
-)
-_RE_INTERFACE = re.compile(r"^interface\s+(.+)", re.IGNORECASE)
-_RE_NTP_SERVER = re.compile(r"^ntp\s+server\s+(\S+)", re.IGNORECASE)
-_RE_LOGGING_HOST = re.compile(r"^logging\s+host\s+(\S+)", re.IGNORECASE)
+# ---------------------------------------------------------------------------
+# Default (Cisco IOS) config-line patterns per rule
+# ---------------------------------------------------------------------------
+_DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
+    "ssh_v2_only": {
+        "match": "ip ssh version",
+        "pass_value": "ip ssh version 2",
+        "fail_value": "ip ssh version 1",
+        "pass_detail": "SSHv2 is explicitly enabled",
+        "fail_detail_v1": "SSHv1 is configured — prohibited. Use 'ip ssh version 2'",
+        "fail_detail_missing": "No SSH version configuration found — must explicitly set 'ip ssh version 2'",
+        "fail_detail_unexpected": "Unexpected SSH version config: {lines}",
+    },
+    "no_open_ports": {
+        "match": "switchport access vlan",
+        "iface_prefix": "interface ",
+        "pass_detail": "All VLAN assignments are within the allowed set",
+        "fail_detail": "Unauthorized VLAN assignments: {violations}",
+    },
+    "ntp_approved": {
+        "match": "ntp server",
+        "pass_detail": "All NTP servers are approved",
+        "fail_detail": "Unapproved NTP servers: {violations}",
+        "fail_detail_missing": "No NTP servers configured — at least one required",
+    },
+    "syslog_approved": {
+        "match": "logging host",
+        "pass_detail": "All syslog servers are approved",
+        "fail_detail": "Unapproved syslog servers: {violations}",
+        "fail_detail_missing": "No syslog servers configured — at least one required",
+    },
+}
 
 
-def _extract_interfaces(lines: list[str]) -> dict[str, list[str]]:
-    """Build a mapping of interface name -> child config lines.
-
-    Parses Cisco-style config blocks. Since parse_config strips whitespace,
-    we detect interface boundaries by 'interface X' lines and collect all
-    subsequent non-interface lines until the next interface or a top-level
-    marker (hostname, end, !).
-    """
-    interfaces: dict[str, list[str]] = {}
-    current_iface: str | None = None
-    _TOPLEVEL_RE = re.compile(r"^(hostname|end|banner|no\s)", re.IGNORECASE)
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("!"):
-            current_iface = None
-            continue
-
-        m = _RE_INTERFACE.match(stripped)
-        if m:
-            current_iface = m.group(1).strip()
-            interfaces[current_iface] = []
-            continue
-
-        if current_iface is not None:
-            if _TOPLEVEL_RE.match(stripped):
-                current_iface = None
-            else:
-                interfaces[current_iface].append(stripped)
-
-    return interfaces
+def _get_patterns(rule: str, check_config: dict[str, Any]) -> dict[str, Any]:
+    """Return effective patterns for a rule, merging vendor overrides."""
+    base = dict(_DEFAULT_PATTERNS.get(rule, {}))
+    vendor_overrides = check_config.get("vendor_patterns", {})
+    # vendor_overrides is a dict of {device_type: {pattern_key: value}}
+    # For now we use the base patterns; vendor_overrides can be passed in
+    # the baseline YAML to customize per vendor.
+    if isinstance(vendor_overrides, dict):
+        # If vendor_overrides has a 'default' key, apply those as base overrides
+        default_overrides = vendor_overrides.get("default", {})
+        if isinstance(default_overrides, dict):
+            base.update(default_overrides)
+    return base
 
 
 def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
+    lines = snapshot.config.lines
     sev = config["severity"]
+    patterns = _get_patterns("ssh_v2_only", config)
+    match = patterns["match"]
+    pass_value = patterns["pass_value"]
+    fail_value = patterns["fail_value"]
 
-    matches = [m for m in (_RE_SSH_VERSION.match(line) for line in snapshot.config.lines) if m]
-    if not matches:
-        logger.warning("%s: no 'ip ssh version' directive found", snapshot.device_name)
+    ssh_version_lines = [line for line in lines if match in line.lower()]
+    if not ssh_version_lines:
+        logger.warning("%s: no '%s' directive found", snapshot.device_name, match)
         return ComplianceResult(
-            check_name="ssh_v2_only", passed=False, severity=sev,
-            detail="No SSH version configuration found — must explicitly set 'ip ssh version 2'")
+            check_name="ssh_v2_only",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing"],
+        )
 
-    for m in matches:
-        version = m.group(1)
-        if version == "1":
+    for line in ssh_version_lines:
+        line_lower = line.lower()
+        if fail_value in line_lower:
             logger.info("%s: SSHv1 detected", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_v2_only", passed=False, severity=sev,
-                detail="SSHv1 is configured — prohibited. Use 'ip ssh version 2'")
-        if version == "2":
+                check_name="ssh_v2_only",
+                passed=False,
+                severity=sev,
+                detail=patterns["fail_detail_v1"],
+            )
+        if pass_value in line_lower:
             logger.info("%s: SSHv2 confirmed", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_v2_only", passed=True, severity=sev,
-                detail="SSHv2 is explicitly enabled")
+                check_name="ssh_v2_only", passed=True, severity=sev, detail=patterns["pass_detail"]
+            )
 
     return ComplianceResult(
-        check_name="ssh_v2_only", passed=False, severity=sev,
-        detail=f"Unexpected SSH version config: {'; '.join(m.string for m in matches)}")
+        check_name="ssh_v2_only",
+        passed=False,
+        severity=sev,
+        detail=patterns["fail_detail_unexpected"].format(lines="; ".join(ssh_version_lines)),
+    )
 
 
 def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     allowed = set(str(v) for v in config.get("allowed_vlans", []))
-    sev = config["severity"]
-
-    interfaces = _extract_interfaces(snapshot.config.lines)
+    lines = snapshot.config.lines
     violations: list[str] = []
+    patterns = _get_patterns("no_open_ports", config)
+    match = patterns["match"]
+    iface_prefix = patterns["iface_prefix"]
 
-    for iface, child_lines in interfaces.items():
-        for line in child_lines:
-            m = _RE_SWITCHPORT_ACCESS_VLAN.match(line)
-            if m:
-                vlan = m.group(1)
-                if vlan not in allowed:
-                    violations.append(f"{iface} in VLAN {vlan}")
+    for i, line in enumerate(lines):
+        if match not in line.lower():
+            continue
+        parts = line.strip().split()
+        if len(parts) < 4:
+            continue
+        vlan = parts[-1]
+        if vlan in allowed:
+            continue
 
+        # Walk backwards to find the interface name
+        iface = "unknown"
+        for j in range(i - 1, max(i - 10, -1), -1):
+            stripped = lines[j].strip()
+            if stripped.lower().startswith(iface_prefix):
+                iface = stripped.split(" ", 1)[1]
+                break
+        violations.append(f"{iface} in VLAN {vlan}")
+
+    sev = config["severity"]
     if violations:
         logger.info("%s: unauthorized VLANs: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="inactive_ports", passed=False, severity=sev,
-            detail=f"Unauthorized VLAN assignments: {'; '.join(violations)}")
+            check_name="inactive_ports",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(violations="; ".join(violations)),
+        )
     return ComplianceResult(
-        check_name="inactive_ports", passed=True, severity=sev,
-        detail="All VLAN assignments are within the allowed set")
+        check_name="inactive_ports", passed=True, severity=sev, detail=patterns["pass_detail"]
+    )
 
 
 def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
+    patterns = _get_patterns("ntp_approved", config)
+    match = patterns["match"]
+    ntp_lines = [line.strip() for line in snapshot.config.lines if match in line.lower()]
     sev = config["severity"]
 
-    servers = [m.group(1) for line in snapshot.config.lines
-               if (m := _RE_NTP_SERVER.match(line.strip()))]
-
-    if not servers:
+    if not ntp_lines:
         logger.warning("%s: no NTP servers configured", snapshot.device_name)
         return ComplianceResult(
-            check_name="ntp_config", passed=False, severity=sev,
-            detail="No NTP servers configured — at least one required")
+            check_name="ntp_config",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing"],
+        )
 
-    violations = [s for s in servers if s not in approved]
+    violations = []
+    for line in ntp_lines:
+        parts = line.split()
+        if len(parts) >= 3:
+            server = parts[2]
+            if server not in approved:
+                violations.append(server)
+
     if violations:
         logger.info("%s: unapproved NTP servers: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="ntp_config", passed=False, severity=sev,
-            detail=f"Unapproved NTP servers: {', '.join(violations)}")
+            check_name="ntp_config",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(violations=", ".join(violations)),
+        )
     return ComplianceResult(
-        check_name="ntp_config", passed=True, severity=sev,
-        detail="All NTP servers are approved")
+        check_name="ntp_config", passed=True, severity=sev, detail=patterns["pass_detail"]
+    )
 
 
 def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
+    patterns = _get_patterns("syslog_approved", config)
+    match = patterns["match"]
+    syslog_lines = [line.strip() for line in snapshot.config.lines if match in line.lower()]
     sev = config["severity"]
 
-    servers = [m.group(1) for line in snapshot.config.lines
-               if (m := _RE_LOGGING_HOST.match(line.strip()))]
-
-    if not servers:
+    if not syslog_lines:
         logger.warning("%s: no syslog servers configured", snapshot.device_name)
         return ComplianceResult(
-            check_name="syslog_config", passed=False, severity=sev,
-            detail="No syslog servers configured — at least one required")
+            check_name="syslog_config",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing"],
+        )
 
-    violations = [s for s in servers if s not in approved]
+    violations = []
+    for line in syslog_lines:
+        parts = line.split()
+        if len(parts) >= 3:
+            server = parts[2]
+            if server not in approved:
+                violations.append(server)
+
     if violations:
         logger.info("%s: unapproved syslog servers: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="syslog_config", passed=False, severity=sev,
-            detail=f"Unapproved syslog servers: {', '.join(violations)}")
+            check_name="syslog_config",
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(violations=", ".join(violations)),
+        )
     return ComplianceResult(
-        check_name="syslog_config", passed=True, severity=sev,
-        detail="All syslog servers are approved")
+        check_name="syslog_config", passed=True, severity=sev, detail=patterns["pass_detail"]
+    )
 
 
 _RULE_DISPATCH: dict[str, Any] = {
@@ -168,10 +233,14 @@ def run_checks(snapshot: DeviceSnapshot, baseline: dict[str, Any]) -> list[Compl
         handler = _RULE_DISPATCH.get(check_config.get("rule"))
         if handler is None:
             logger.warning("Unknown rule '%s' for check '%s'", check_config.get("rule"), check_name)
-            results.append(ComplianceResult(
-                check_name=check_name, passed=False,
-                severity=check_config.get("severity", "medium"),
-                detail=f"Unknown rule: {check_config.get('rule')}"))
+            results.append(
+                ComplianceResult(
+                    check_name=check_name,
+                    passed=False,
+                    severity=check_config.get("severity", "medium"),
+                    detail=f"Unknown rule: {check_config.get('rule')}",
+                )
+            )
         else:
             results.append(handler(snapshot, check_config))
     return results

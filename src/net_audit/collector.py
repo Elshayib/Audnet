@@ -1,4 +1,7 @@
-"""Parallel SSH collector for network device data."""
+"""Parallel SSH collector for network device data.
+
+Uses the vendor registry for multi-vendor command dispatch.
+"""
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,17 +13,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from net_audit.parser import parse_interfaces, parse_version, parse_config
+from net_audit.vendor_registry import get_commands
 
 logger = logging.getLogger(__name__)
-
-VENDOR_COMMANDS: dict[str, list[str]] = {
-    "cisco_ios": [
-        "show ip interface brief",
-        "show version",
-        "show running-config",
-    ],
-    # Add entries for other vendors e.g. "juniper_junos", "arista_eos" for multi-vendor support
-}
 
 
 @retry(
@@ -45,7 +40,7 @@ def _do_ssh_collect(device: Device) -> list[str]:
         params["use_keys"] = True
         if device.key_file:
             params["key_file"] = device.key_file
-    commands = VENDOR_COMMANDS.get(device.device_type, VENDOR_COMMANDS["cisco_ios"])
+    commands = get_commands(device.device_type)
     with ConnectHandler(**params) as conn:
         return [cast(str, conn.send_command(cmd)) for cmd in commands]
 
@@ -57,14 +52,22 @@ def collect_device(device: Device) -> DeviceSnapshot:
         raw_outputs = _do_ssh_collect(device)
 
         logger.info("Successfully collected data from %s", device.name)
-        parsed_version = parse_version(raw_outputs[1])
+        parsed_version = parse_version(raw_outputs[1], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
-            interfaces=ParsedInterfaces(interfaces=parse_interfaces(raw_outputs[0])),
+            interfaces=ParsedInterfaces(
+                interfaces=parse_interfaces(raw_outputs[0], device_type=device.device_type)
+            ),
             version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
             config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
         )
-    except (NetmikoTimeoutException, NetmikoAuthenticationException, OSError, ValueError, ConnectionError) as exc:
+    except (
+        NetmikoTimeoutException,
+        NetmikoAuthenticationException,
+        OSError,
+        ValueError,
+        ConnectionError,
+    ) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,

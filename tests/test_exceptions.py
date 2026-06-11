@@ -28,7 +28,12 @@ class TestExceptionHierarchy:
 
     def test_base_catches_all(self):
         """Any NetAuditError subclass should be catchable as NetAuditError."""
-        errors = [ConfigError("a"), CollectionError("b"), ParseError("c"),
-                  ComplianceError("d"), ReportError("e")]
+        errors = [
+            ConfigError("a"),
+            CollectionError("b"),
+            ParseError("c"),
+            ComplianceError("d"),
+            ReportError("e"),
+        ]
         for err in errors:
             assert isinstance(err, NetAuditError)
