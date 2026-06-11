@@ -202,6 +202,36 @@ Summary: 1 passed, 1 with issues.
 | `--device` | (all) | Filter to single device by name |
 | `--check` | (all) | Filter to specific checks (repeatable) |
 | `--json` | false | Output JSON summary |
+| `--dry-run`, `-n` | false | Validate config and show what would be audited without connecting to devices |
+
+### Dry-run mode
+
+Use `--dry-run` (or `-n`) to validate your inventory and baseline and preview what would be audited — no SSH connections made:
+
+```bash
+net-audit audit --inventory inventories/devices.yaml --dry-run
+```
+
+Output:
+```
+net-audit v0.1.0 — Starting audit...
+Loaded 2 devices, 4 checks
+DRY RUN — no device connections will be made
+Devices that would be audited:
+  • core-router-01 (192.168.1.1) — cisco_ios
+  • dist-switch-02 (192.168.1.2) — cisco_ios
+Checks that would be run:
+  • inactive_ports
+  • ntp_config
+  • ssh_v2_only
+  • syslog_config
+Dry run complete — config and baseline are valid
+```
+
+Combine with `--device` and `--check` to filter the preview:
+```bash
+net-audit audit --dry-run --device core-router-01 --check ssh_v2_only
+```
 
 ### Output
 
