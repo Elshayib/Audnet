@@ -177,6 +177,97 @@ Filter to one device or specific checks, output JSON for scripting:
 net-audit audit --device core-router-01 --check ssh_v2_only,ntp_config --json
 ```
 
+### Usage Examples
+
+All examples below use the default inventory and baseline paths. Adjust as needed.
+
+#### Audit a single device
+
+```bash
+net-audit audit --device core-router-01
+```
+
+#### Run specific checks only
+
+Using comma-separated values in a single `--check`:
+
+```bash
+net-audit audit --check ssh_v2_only,ntp_config
+```
+
+Or repeat the flag:
+
+```bash
+net-audit audit --check ssh_v2_only --check ntp_config
+```
+
+#### JSON output for CI/CD pipelines
+
+```bash
+net-audit audit --json
+```
+
+Example output:
+
+```json
+[
+  {
+    "device_name": "core-router-01",
+    "overall_pass": true,
+    "checks": [
+      {"check_name": "ssh_v2_only", "passed": true, "detail": "SSHv2 configured"},
+      {"check_name": "ntp_approved", "passed": false, "detail": "unauthorized NTP: 10.0.0.99"}
+    ]
+  }
+]
+```
+
+Pipe to `jq` for targeted queries:
+
+```bash
+net-audit audit --json | jq '.[] | select(.overall_pass == false) | .device_name'
+```
+
+#### Dry-run mode
+
+Validate your config without touching devices:
+
+```bash
+net-audit audit --dry-run
+```
+
+Combine with filters to preview a targeted run:
+
+```bash
+net-audit audit --dry-run --device core-router-01 --check ssh_v2_only
+```
+
+#### Strict mode for CI
+
+Fail immediately if any device has a plaintext password (no `${ENV_VAR}` reference):
+
+```bash
+net-audit audit --strict
+```
+
+#### Verbose debug logging
+
+```bash
+net-audit audit -v --dry-run
+```
+
+#### Combined: single device, specific check, JSON, strict
+
+```bash
+net-audit audit --device core-router-01 --check ssh_v2_only --json --strict
+```
+
+#### Show version
+
+```bash
+net-audit --version
+```
+
 ### Sample Output
 
 ```text
@@ -200,9 +291,12 @@ Summary: 1 passed, 1 with issues.
 | `--format` | `both` | Output format: `md`, `html`, or `both` |
 | `--workers` | `4` | Max parallel SSH connections |
 | `--device` | (all) | Filter to single device by name |
-| `--check` | (all) | Filter to specific checks (repeatable) |
-| `--json` | false | Output JSON summary |
-| `--dry-run`, `-n` | false | Validate config and show what would be audited without connecting to devices |
+| `--check` | (all) | Filter to specific checks (repeatable; comma-separated) |
+| `--json` | `false` | Output JSON summary to stdout |
+| `--dry-run`, `-n` | `false` | Validate config without connecting to devices |
+| `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
+| `-v`, `--verbose` | `false` | Enable debug logging with console output |
+| `--version` | — | Show net-audit version and exit |
 
 ### Dry-run mode
 
@@ -322,9 +416,19 @@ devices:
 
 ### Adding a new vendor
 
-Three steps — no changes to parser, collector, or compliance code:
+Adding support for a new network OS takes three steps. No changes to parser, collector, or compliance code are needed — the vendor registry pattern handles dispatch automatically.
 
-**1. Add TextFSM templates** following the naming convention `<prefix>_<slot_suffix>.textfsm` in `textfsm_templates/`:
+#### Step 1: Add TextFSM templates
+
+Create one template per data slot in `textfsm_templates/`. The naming convention is `<prefix>_<slot_suffix>.textfsm`, where the suffix matches the slot names used by the built-in vendors:
+
+| Slot | Purpose | Example suffix |
+|------|---------|----------------|
+| `show_ip_interface_brief` | Interface status | `show_ip_interface_brief` |
+| `show_version` | Device version/info | `show_version` |
+| `show_running_config` | Full running config | `show_running_config` |
+
+For example, to add Juniper JunOS:
 
 ```
 textfsm_templates/
@@ -333,7 +437,15 @@ textfsm_templates/
 └── juniper_junos_show_running_config.textfsm
 ```
 
-**2. Register the vendor** — either add to `VENDOR_PROFILES` in `vendor_registry.py`:
+Each template should parse the vendor's equivalent CLI output into the same column names the compliance engine expects (e.g., `INTERFACE`, `IP_ADDRESS`, `STATUS`, `PROTOCOL` for interfaces).
+
+**Tip:** Use the [TextFSM CLI tool](https://github.com/google/textfsm/wiki/TextFSM) to interactively test templates against sample output before committing.
+
+#### Step 2: Register the vendor
+
+You have two options — static registration (recommended for built-in vendors) or runtime registration (for plugins or dynamic use).
+
+**Option A: Static registration** — add to `VENDOR_PROFILES` in `src/net_audit/vendor_registry.py`:
 
 ```python
 VENDOR_PROFILES["juniper_junos"] = _profile(
@@ -347,7 +459,9 @@ VENDOR_PROFILES["juniper_junos"] = _profile(
 )
 ```
 
-Or register at runtime:
+The `commands` list must have exactly three entries matching the three slots above (interface brief, version, running config). The `prefix` must match the TextFSM template filename prefix.
+
+**Option B: Runtime registration** — call `register_vendor()` from your code or a plugin:
 
 ```python
 from net_audit.vendor_registry import register_vendor
@@ -359,7 +473,11 @@ register_vendor(
 )
 ```
 
-**3. (Optional) Add vendor-specific compliance patterns** in your baseline YAML if the vendor uses different CLI syntax:
+Runtime registration is useful for plugins, tests, or adding vendors without modifying the net-audit source.
+
+#### Step 3: (Optional) Add vendor-specific compliance patterns
+
+If the vendor uses different CLI syntax for the same security concepts, add `vendor_patterns` to your baseline YAML:
 
 ```yaml
 checks:
@@ -367,9 +485,40 @@ checks:
     severity: critical
     rule: ssh_v2_only
     vendor_patterns:
-      default:
+      juniper_junos:
         match: "set system ssh"
         ok_value: "set system ssh protocol-v2"
+```
+
+The key under `vendor_patterns` must match the `device_type` used in the inventory. If no vendor-specific pattern is defined, the `default` pattern is used.
+
+#### Step 4: Configure devices in inventory
+
+Set the `device_type` on your devices to match the registered key:
+
+```yaml
+devices:
+  - name: juniper-router-01
+    host: 192.168.1.10
+    device_type: juniper_junos
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+```
+
+That's it. The collector will automatically send the correct commands, the parser will load the correct templates, and the compliance engine will use the correct patterns.
+
+#### Verifying your vendor
+
+Run a dry-run to confirm the vendor is recognized:
+
+```bash
+net-audit audit --device juniper-router-01 --dry-run
+```
+
+Then run a full audit and check the output:
+
+```bash
+net-audit audit --device juniper-router-01 --json
 ```
 
 ### How it works
