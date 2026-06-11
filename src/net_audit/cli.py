@@ -77,7 +77,12 @@ def audit(
         help="Filter to specific checks (repeatable; supports comma-separated in one arg)",
     ),
     json_out: bool = typer.Option(False, "--json", help="Output JSON summary to stdout"),
-    dry_run: bool = typer.Option(False, "-n", "--dry-run", help="Validate config and show what would be audited without connecting to devices"),
+    dry_run: bool = typer.Option(
+        False,
+        "-n",
+        "--dry-run",
+        help="Validate config and show what would be audited without connecting to devices",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 

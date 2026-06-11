@@ -412,7 +412,7 @@ class TestRetryBroadened:
     @patch("net_audit.collector.ConnectHandler")
     def test_retries_on_ssh_exception(self, mock_cls) -> None:
         """SSHException is retried as it's in _RETRYABLE_EXCEPTIONS."""
-        from netmiko.exceptions import SSHException
+        from paramiko.ssh_exception import SSHException
 
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
@@ -562,7 +562,12 @@ class TestCollectAllTimeout:
         from unittest.mock import patch
 
         with patch("net_audit.collector.collect_device") as mock_collect:
-            from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+            from net_audit.models import (
+                DeviceSnapshot,
+                ParsedInterfaces,
+                ParsedVersion,
+                ParsedConfig,
+            )
 
             mock_collect.return_value = DeviceSnapshot(
                 device_name="rtr01",

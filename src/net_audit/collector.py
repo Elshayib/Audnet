@@ -4,7 +4,7 @@ Uses the vendor registry for multi-vendor command dispatch.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
 from netmiko import ConnectHandler
@@ -14,9 +14,9 @@ from netmiko.exceptions import (
     ConfigInvalidException,
     ConnectionException,
     ReadException,
-    SSHException,
     NetmikoParsingException,
 )
+from paramiko.ssh_exception import SSHException
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig

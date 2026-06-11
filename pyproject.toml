@@ -91,3 +91,8 @@ exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.",
 ]
+
+[dependency-groups]
+dev = [
+    "types-paramiko>=4.0.0.20260518",
+]
