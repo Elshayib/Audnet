@@ -33,11 +33,15 @@ class TestCollectDevice:
         mock_conn.__enter__.return_value = mock_conn
         mock_conn.__exit__.return_value = False
         mock_conn.send_command.side_effect = [
-            ("Interface              IP-Address      OK? Method Status                Protocol\n"
-             "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"),
-            ("Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
-             "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
-             "router uptime is 5 days, 3 hours, 22 minutes"),
+            (
+                "Interface              IP-Address      OK? Method Status                Protocol\n"
+                "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
+            ),
+            (
+                "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+                "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+                "router uptime is 5 days, 3 hours, 22 minutes"
+            ),
             "hostname rtr01\nip ssh version 2\nntp server 10.0.0.50\n",
         ]
         mock_conn.is_alive.return_value = True
@@ -61,6 +65,7 @@ class TestCollectDevice:
     @patch("net_audit.collector.ConnectHandler")
     def test_connection_failure(self, mock_cls):
         from netmiko.exceptions import NetmikoTimeoutException
+
         mock_cls.side_effect = NetmikoTimeoutException("Connection timed out")
 
         snap = collect_device(_make_device())
@@ -82,8 +87,11 @@ class TestCollectDevice:
         mock_cls.return_value = mock_conn
 
         device = Device(
-            name="rtr01", host="10.0.0.1", username="admin",
-            use_keys=True, key_file="/home/user/.ssh/id_ed25519",
+            name="rtr01",
+            host="10.0.0.1",
+            username="admin",
+            use_keys=True,
+            key_file="/home/user/.ssh/id_ed25519",
         )
         snap = collect_device(device)
         assert snap.collection_error is None
@@ -106,7 +114,9 @@ class TestCollectDevice:
         mock_cls.return_value = mock_conn
 
         device = Device(
-            name="rtr01", host="10.0.0.1", username="admin",
+            name="rtr01",
+            host="10.0.0.1",
+            username="admin",
             use_keys=True,
         )
         snap = collect_device(device)
@@ -139,8 +149,8 @@ class TestCollectDevice:
 class TestCollectAll:
     @patch("net_audit.collector.collect_device")
     def test_collects_all_devices(self, mock_collect):
-        from net_audit.models import (DeviceSnapshot, ParsedInterfaces,
-                                      ParsedVersion, ParsedConfig)
+        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
         mock_collect.return_value = DeviceSnapshot(
             device_name="rtr01",
             interfaces=ParsedInterfaces(),
@@ -243,36 +253,17 @@ class TestRetry:
 
 
 class TestVendorCommands:
-    """Tests for VENDOR_COMMANDS multi-vendor support."""
+    """Tests for multi-vendor command dispatch via vendor registry."""
 
+    @patch("net_audit.collector.get_commands")
     @patch("net_audit.collector.ConnectHandler")
-    def test_unknown_device_type_uses_cisco_ios_fallback(self, mock_cls) -> None:
-        """Unknown device_type falls back to cisco_ios commands."""
-        mock_conn = MagicMock()
-        mock_conn.__enter__.return_value = mock_conn
-        mock_conn.__exit__.return_value = False
-        mock_conn.send_command.side_effect = [
-            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
-            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
-            "hostname rtr01\n",
+    def test_known_device_type_uses_vendor_commands(self, mock_cls, mock_get_cmds):
+        """Known device_type (cisco_ios) uses vendor registry commands."""
+        mock_get_cmds.return_value = [
+            "show ip interface brief",
+            "show version",
+            "show running-config",
         ]
-        mock_conn.is_alive.return_value = True
-        mock_cls.return_value = mock_conn
-
-        device = Device(
-            name="rtr01", host="10.0.0.1", username="admin", password="x",
-            device_type="arista_eos",
-        )
-        snap = collect_device(device)
-        assert snap.collection_error is None
-        # Verify cisco_ios commands were sent (fallback)
-        assert mock_conn.send_command.call_count == 3
-        cmds = [c.args[0] for c in mock_conn.send_command.call_args_list]
-        assert "show version" in cmds
-
-    @patch("net_audit.collector.ConnectHandler")
-    def test_known_device_type_uses_vendor_commands(self, mock_cls) -> None:
-        """Known device_type (cisco_ios) uses VENDOR_COMMANDS entries."""
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
         mock_conn.__exit__.return_value = False
@@ -290,3 +281,66 @@ class TestVendorCommands:
         assert "show ip interface brief" in cmds
         assert "show version" in cmds
         assert "show running-config" in cmds
+        mock_get_cmds.assert_called_once_with("cisco_ios")
+
+    @patch("net_audit.collector.get_commands")
+    @patch("net_audit.collector.ConnectHandler")
+    def test_arista_eos_uses_vendor_commands(self, mock_cls, mock_get_cmds):
+        """arista_eos device_type uses arista_eos commands from registry."""
+        mock_get_cmds.return_value = [
+            "show ip interface brief",
+            "show version",
+            "show running-config",
+        ]
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Arista EOS, Version 4.28\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        device = Device(
+            name="rtr01",
+            host="10.0.0.1",
+            username="admin",
+            password="x",
+            device_type="arista_eos",
+        )
+        snap = collect_device(device)
+        assert snap.collection_error is None
+        mock_get_cmds.assert_called_once_with("arista_eos")
+
+    @patch("net_audit.collector.get_commands")
+    @patch("net_audit.collector.ConnectHandler")
+    def test_unknown_device_type_falls_back_to_cisco_ios(self, mock_cls, mock_get_cmds):
+        """Unknown device_type falls back to cisco_ios commands via registry."""
+        mock_get_cmds.return_value = [
+            "show ip interface brief",
+            "show version",
+            "show running-config",
+        ]
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+        mock_cls.return_value = mock_conn
+
+        device = Device(
+            name="rtr01",
+            host="10.0.0.1",
+            username="admin",
+            password="x",
+            device_type="juniper_junos",
+        )
+        snap = collect_device(device)
+        assert snap.collection_error is None
+        mock_get_cmds.assert_called_once_with("juniper_junos")

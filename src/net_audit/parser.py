@@ -1,4 +1,10 @@
-"""TextFSM parser — converts raw CLI output to structured JSON."""
+"""TextFSM parser — converts raw CLI output to structured JSON.
+
+Supports multi-vendor template resolution via the vendor registry.
+Each parse function accepts an optional ``device_type`` parameter that
+selects the correct TextFSM template.  Falls back to cisco_ios templates
+for unknown device types.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from importlib.resources import files
 import textfsm
 
 from net_audit.exceptions import ParseError
+from net_audit.vendor_registry import get_template_name
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +40,27 @@ def _normalize_row(row: dict[str, str]) -> dict[str, str]:
     return {k.lower().replace(" ", "_"): v.strip() for k, v in row.items()}
 
 
-def parse_interfaces(raw: str) -> list[dict[str, str]]:
+def parse_interfaces(raw: str, device_type: str = "cisco_ios") -> list[dict[str, str]]:
     if not raw.strip():
         return []
-    records = _apply_template("cisco_ios_show_ip_interface_brief.textfsm", raw)
+    template_name = get_template_name(device_type, slot=0) + ".textfsm"
+    records = _apply_template(template_name, raw)
     return [_normalize_row(r) for r in records]
 
 
-def parse_version(raw: str) -> dict[str, str]:
+def parse_version(raw: str, device_type: str = "cisco_ios") -> dict[str, str]:
     if not raw.strip():
         return {}
-    rows = _apply_template("cisco_ios_show_version.textfsm", raw)
+    template_name = get_template_name(device_type, slot=1) + ".textfsm"
+    rows = _apply_template(template_name, raw)
     if rows:
         return _normalize_row(rows[0])
     return {}
 
 
-def parse_config(raw: str) -> list[str]:
+def parse_config(raw: str, device_type: str = "cisco_ios") -> list[str]:
+    # Config parsing is vendor-agnostic (line-by-line), but we keep the
+    # device_type parameter for forward compatibility.
     if not raw.strip():
         return []
     return [line.strip() for line in raw.splitlines() if line.strip()]

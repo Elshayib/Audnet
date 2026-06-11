@@ -5,9 +5,11 @@ from net_audit.exceptions import ParseError
 
 class TestParseInterfaces:
     def test_basic_table(self):
-        raw = ("Interface              IP-Address      OK? Method Status                Protocol\n"
-               "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up\n"
-               "GigabitEthernet0/1     unassigned      YES NVRAM  administratively down down")
+        raw = (
+            "Interface              IP-Address      OK? Method Status                Protocol\n"
+            "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up\n"
+            "GigabitEthernet0/1     unassigned      YES NVRAM  administratively down down"
+        )
         result = parse_interfaces(raw)
         assert len(result) == 2
         assert result[0]["interface"] == "GigabitEthernet0/0"
@@ -19,9 +21,11 @@ class TestParseInterfaces:
 
 class TestParseVersion:
     def test_parses_version(self):
-        raw = ("Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
-               "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
-               "router uptime is 5 days, 3 hours, 22 minutes")
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "router uptime is 5 days, 3 hours, 22 minutes"
+        )
         result = parse_version(raw)
         assert "15.2" in result.get("version", "")
         assert "5 days" in result.get("uptime", "")
@@ -45,6 +49,7 @@ class TestParserErrorPaths:
     def test_missing_template_returns_empty(self, tmp_path, monkeypatch):
         """When template file doesn't exist, parse_interfaces returns []."""
         import net_audit.parser as parser_mod
+
         monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", tmp_path / "nonexistent")
         result = parse_interfaces("some raw output")
         assert result == []
@@ -70,6 +75,7 @@ class TestParserErrorPaths:
     def test_corrupt_template_raises_parse_error(self, tmp_path, monkeypatch):
         """A corrupt TextFSM template raises ParseError."""
         import net_audit.parser as parser_mod
+
         bad_template_dir = tmp_path / "templates"
         bad_template_dir.mkdir()
         bad_template = bad_template_dir / "cisco_ios_show_ip_interface_brief.textfsm"
@@ -77,3 +83,69 @@ class TestParserErrorPaths:
         monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", bad_template_dir)
         with pytest.raises(ParseError, match="Template error"):
             parse_interfaces("some raw output")
+
+
+class TestParserVendorDispatch:
+    """Tests for vendor-aware template selection in parser functions."""
+
+    def test_parse_interfaces_uses_cisco_ios_by_default(self):
+        """Default device_type='cisco_ios' uses cisco_ios templates."""
+        raw = (
+            "Interface              IP-Address      OK? Method Status                Protocol\n"
+            "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
+        )
+        result = parse_interfaces(raw)
+        assert len(result) == 1
+        assert result[0]["interface"] == "GigabitEthernet0/0"
+
+    def test_parse_interfaces_with_explicit_cisco_ios(self):
+        """Explicitly passing cisco_ios works the same as default."""
+        raw = (
+            "Interface              IP-Address      OK? Method Status                Protocol\n"
+            "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
+        )
+        result = parse_interfaces(raw, device_type="cisco_ios")
+        assert len(result) == 1
+
+    def test_parse_interfaces_unknown_vendor_falls_back(self):
+        """Unknown device_type falls back to cisco_ios templates."""
+        raw = (
+            "Interface              IP-Address      OK? Method Status                Protocol\n"
+            "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
+        )
+        result = parse_interfaces(raw, device_type="juniper_junos")
+        assert len(result) == 1
+
+    def test_parse_version_uses_cisco_ios_by_default(self):
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "router uptime is 5 days, 3 hours, 22 minutes"
+        )
+        result = parse_version(raw)
+        assert "15.2" in result.get("version", "")
+
+    def test_parse_version_with_explicit_vendor(self):
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "router uptime is 5 days, 3 hours, 22 minutes"
+        )
+        result = parse_version(raw, device_type="cisco_ios")
+        assert "15.2" in result.get("version", "")
+
+    def test_parse_config_ignores_device_type(self):
+        """parse_config is vendor-agnostic; device_type is accepted but doesn't change behavior."""
+        raw = "hostname rtr01\ninterface Gi0/0"
+        result_default = parse_config(raw)
+        result_vendor = parse_config(raw, device_type="arista_eos")
+        assert result_default == result_vendor
+        assert len(result_default) == 2
+
+    def test_parse_interfaces_empty_with_vendor(self):
+        assert parse_interfaces("", device_type="cisco_ios") == []
+        assert parse_interfaces("   ", device_type="arista_eos") == []
+
+    def test_parse_version_empty_with_vendor(self):
+        assert parse_version("", device_type="cisco_ios") == {}
+        assert parse_version("   ", device_type="cisco_nxos") == {}

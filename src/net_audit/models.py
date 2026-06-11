@@ -19,9 +19,7 @@ def _validate_host(value: str) -> str:
     if " " in value or "\t" in value:
         raise ValueError(f"invalid host: {value!r}")
     if "." not in value and value != "localhost":
-        raise ValueError(
-            f"invalid host: {value!r} — must be a valid IP, FQDN, or 'localhost'"
-        )
+        raise ValueError(f"invalid host: {value!r} — must be a valid IP, FQDN, or 'localhost'")
     # Reject characters that are invalid in hostnames
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
     if not all(c in allowed for c in value):
