@@ -59,7 +59,24 @@ A Python CLI tool that:
 
 Every layer is independently testable with mocked responses — no real network hardware required.
 
-## Installation & Deployment
+## Installation
+
+### Quick install (end users)
+
+If you just want to use net-audit:
+
+```bash
+# Using uv (recommended)
+uv tool install git+https://github.com/islam666/net-audit.git
+
+# Using pip
+pip install git+https://github.com/islam666/net-audit.git
+
+# Verify
+net-audit --version
+```
+
+### Development setup (contributors)
 
 ### Prerequisites
 
