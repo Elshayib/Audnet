@@ -344,37 +344,57 @@ The tool produces:
 ```
 net-audit/
 ├── pyproject.toml              # Build config, dependencies, pytest/ruff settings
+├── CHANGELOG.md                # Release history (Keep a Changelog format)
+├── CONTRIBUTING.md             # Development guidelines, testing, PR workflow
+├── LICENSE                     # MIT License
 ├── README.md                   # This file
+├── SECURITY.md                 # Security policy, credential handling, disclosure
+├── uv.lock                     # Reproducible dependency lockfile
+├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy, bandit, etc.)
+├── benchmarks/
+│   └── bench_collectors.py     # Sync vs async collector performance benchmarks
+├── inventories/
+│   └── devices.yaml            # Sample device inventory
+├── baselines/
+│   └── security_baseline.yaml  # Compliance rules configuration
 ├── src/net_audit/
 │   ├── __init__.py             # Package init, version
 │   ├── cli.py                  # Typer CLI entry point
 │   ├── config.py               # YAML inventory/baseline loader with env resolution
 │   ├── models.py               # Pydantic data models (incl. SecurityBaseline)
+│   ├── exceptions.py           # Structured exception hierarchy
 │   ├── vendor_registry.py      # Vendor registry for multi-vendor dispatch
 │   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries)
+│   ├── collector_async.py      # Asyncio collector (asyncssh + semaphore concurrency)
 │   ├── parser.py               # TextFSM parser (CLI → structured JSON, vendor-aware)
 │   ├── compliance.py           # Rule engine (4 security checks, vendor-pattern overrides)
-│   └── reporter.py             # Jinja2 report generator (Markdown + HTML)
-├── templates/
-│   ├── audit_report.md.j2      # Markdown report template
-│   └── audit_report.html.j2    # HTML report template
-├── textfsm_templates/
-│   ├── cisco_ios_show_ip_interface_brief.textfsm
-│   ├── cisco_ios_show_version.textfsm
-│   └── cisco_ios_show_running_config.textfsm
-├── inventories/
-│   └── devices.yaml            # Sample device inventory
-├── baselines/
-│   └── security_baseline.yaml  # Compliance rules configuration
+│   ├── reporter.py             # Jinja2 report generator (Markdown + HTML)
+│   ├── templates/
+│   │   ├── __init__.py
+│   │   ├── audit_report.md.j2  # Markdown report template
+│   │   └── audit_report.html.j2 # HTML report template
+│   └── textfsm_templates/
+│       ├── __init__.py
+│       ├── cisco_ios_show_ip_interface_brief.textfsm
+│       ├── cisco_ios_show_version.textfsm
+│       ├── cisco_ios_show_running_config.textfsm
+│       ├── cisco_ios_show_interface_status.textfsm
+│       └── cisco_ios_show_cdp_neighbors_detail.textfsm
 └── tests/
+    ├── __init__.py
     ├── conftest.py             # Shared pytest fixtures
     ├── test_models.py          # Device, ComplianceResult, AuditReport
     ├── test_config.py          # Inventory loading, env resolution
     ├── test_collector.py       # SSH collection, error handling, vendor dispatch
+    ├── test_collector_async.py # Async collector: success, auth failure, timeout, mixed
     ├── test_parser.py          # TextFSM parsing, vendor-aware template selection
     ├── test_compliance.py      # All 4 rule types (pass/fail), case-insensitive
     ├── test_reporter.py        # Markdown/HTML rendering
-    └── test_vendor_registry.py # Vendor profiles, dispatch, registration
+    ├── test_vendor_registry.py # Vendor profiles, dispatch, registration
+    ├── test_exceptions.py      # Exception hierarchy and inheritance
+    ├── test_integration.py     # End-to-end: compliant, noncompliant, partial
+    ├── test_logging.py         # Structlog configuration and secret redaction
+    └── test_version.py         # Version string format and accessibility
 ```
 
 ## Multi-Vendor Support
