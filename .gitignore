@@ -13,6 +13,7 @@ htmlcov/
 *.html
 *.md
 !README.md
+!CHANGELOG.md
 audit_report.*
 __pycache__/
 *.pyc
