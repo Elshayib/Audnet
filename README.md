@@ -533,6 +533,69 @@ net-audit audit --device juniper-router-01 --json
 - `compliance.py` uses pattern-based matching with optional per-vendor overrides
 - All vendor resolution falls back to `cisco_ios` for unknown device types
 
+## Performance & Scalability
+
+### Current architecture: ThreadPool + Netmiko
+
+The default collector (`collector.py`) uses `concurrent.futures.ThreadPoolExecutor`
+with Netmiko for SSH. This works well for small-to-medium inventories (up to
+~20 devices) but has limitations at scale:
+
+- **Thread overhead**: Each concurrent connection consumes a thread (~8MB stack)
+- **GIL contention**: Python's GIL limits true parallelism for CPU-bound parsing
+- **Memory**: 100 devices × 4 threads = significant memory for thread stacks
+
+### Async prototype: asyncio + asyncssh
+
+An async collector prototype is available at `collector_async.py`. It replaces
+threads with coroutines and uses `asyncssh` for SSH transport:
+
+| Aspect | Sync (ThreadPool) | Async (asyncio) |
+|--------|-------------------|-----------------|
+| Concurrency model | OS threads | Coroutines |
+| Memory per connection | ~8MB (thread stack) | ~1KB (coroutine) |
+| Default `max_workers` | 4 | 50 |
+| Scales to | ~20-50 devices | 100+ devices |
+| Dependency | Netmiko | asyncssh |
+
+### Running the benchmark
+
+```bash
+uv run python benchmarks/bench_collectors.py
+```
+
+This compares sync vs async collection across 4/8/16/32 devices with mocked
+SSH responses. Results are written to `benchmarks/results.json`.
+
+### Migration path
+
+The async collector is a **prototype** — it produces identical `DeviceSnapshot`
+output and shares the same parser, compliance, and vendor registry code.
+
+To switch to async collection when scaling beyond ~50 devices:
+
+1. Install asyncssh: `uv add asyncssh`
+2. Change the import in `cli.py`:
+   ```python
+   # from net_audit.collector import collect_all
+   from net_audit.collector_async import collect_all_async as collect_all
+   ```
+3. The `--workers` flag maps to `asyncio.Semaphore` limit (default: 50)
+4. Keep the sync collector as fallback for environments without asyncssh
+
+### Future: Scrapli
+
+For production async deployments, consider migrating from `asyncssh` to
+[Scrapli](https://github.com/scrapli/scrapli) which provides:
+
+- Built-in multi-vendor support (replacing Netmiko's device-type abstraction)
+- Both sync and async transports
+- Structured parsing (replacing TextFSM for some platforms)
+- Active community and regular updates
+
+The vendor registry pattern in `vendor_registry.py` is already compatible —
+Scrapli would replace only the SSH transport layer in the collector.
+
 ## Compliance Checks
 
 | Check | Rule | Severity | What it detects |

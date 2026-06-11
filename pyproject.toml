@@ -31,6 +31,7 @@ dependencies = [
     "rich>=13.0",
     "structlog>=24.0",
     "tenacity>=8.5.0",
+    "asyncssh>=2.23.1",
 ]
 
 [project.optional-dependencies]
@@ -60,6 +61,8 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100
@@ -77,6 +80,7 @@ module = [
     "textfsm.*",
     "yaml.*",
     "tenacity.*",
+    "asyncssh.*",
 ]
 ignore_missing_imports = true
 
@@ -99,4 +103,5 @@ exclude_lines = [
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
+    "pytest-asyncio>=1.4.0",
 ]
