@@ -22,3 +22,6 @@ audit_report.*
 # User data — never commit real device inventories or baselines with credentials
 inventories/
 baselines/
+
+# Agent working files
+.hermes/
