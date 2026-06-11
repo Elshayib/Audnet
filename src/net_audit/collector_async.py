@@ -79,7 +79,8 @@ async def _do_ssh_collect(device: Device) -> list[str]:
         port=device.port,
         username=device.username,
         password=password,
-        known_hosts=None,
+        # Security fix: Removed known_hosts=None to enable default SSH host key verification
+        # and prevent Man-in-the-Middle (MitM) attacks.
         connect_timeout=str(device.timeout) if device.timeout else "30",
     ) as conn:
         results: list[str] = []
