@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
     "ssh_v2_only": {
         "match": "ip ssh version",
-        "pass_value": "ip ssh version 2",
+        "ok_value": "ip ssh version 2",
         "fail_value": "ip ssh version 1",
-        "pass_detail": "SSHv2 is explicitly enabled",
+        "ok_detail": "SSHv2 is explicitly enabled",
         "fail_detail_v1": "SSHv1 is configured — prohibited. Use 'ip ssh version 2'",
         "fail_detail_missing": "No SSH version configuration found — must explicitly set 'ip ssh version 2'",
         "fail_detail_unexpected": "Unexpected SSH version config: {lines}",
@@ -29,18 +29,18 @@ _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
     "no_open_ports": {
         "match": "switchport access vlan",
         "iface_prefix": "interface ",
-        "pass_detail": "All VLAN assignments are within the allowed set",
+        "ok_detail": "All VLAN assignments are within the allowed set",
         "fail_detail": "Unauthorized VLAN assignments: {violations}",
     },
     "ntp_approved": {
         "match": "ntp server",
-        "pass_detail": "All NTP servers are approved",
+        "ok_detail": "All NTP servers are approved",
         "fail_detail": "Unapproved NTP servers: {violations}",
         "fail_detail_missing": "No NTP servers configured — at least one required",
     },
     "syslog_approved": {
         "match": "logging host",
-        "pass_detail": "All syslog servers are approved",
+        "ok_detail": "All syslog servers are approved",
         "fail_detail": "Unapproved syslog servers: {violations}",
         "fail_detail_missing": "No syslog servers configured — at least one required",
     },
@@ -67,7 +67,7 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
     sev = config["severity"]
     patterns = _get_patterns("ssh_v2_only", config)
     match = patterns["match"]
-    pass_value = patterns["pass_value"]
+    ok_value = patterns["ok_value"]
     fail_value = patterns["fail_value"]
 
     ssh_version_lines = [line for line in lines if match in line.lower()]
@@ -90,10 +90,10 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
                 severity=sev,
                 detail=patterns["fail_detail_v1"],
             )
-        if pass_value in line_lower:
+        if ok_value in line_lower:
             logger.info("%s: SSHv2 confirmed", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_v2_only", passed=True, severity=sev, detail=patterns["pass_detail"]
+                check_name="ssh_v2_only", passed=True, severity=sev, detail=patterns["ok_detail"]
             )
 
     return ComplianceResult(
@@ -141,7 +141,7 @@ def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Co
             detail=patterns["fail_detail"].format(violations="; ".join(violations)),
         )
     return ComplianceResult(
-        check_name="inactive_ports", passed=True, severity=sev, detail=patterns["pass_detail"]
+        check_name="inactive_ports", passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 
@@ -178,7 +178,7 @@ def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Com
             detail=patterns["fail_detail"].format(violations=", ".join(violations)),
         )
     return ComplianceResult(
-        check_name="ntp_config", passed=True, severity=sev, detail=patterns["pass_detail"]
+        check_name="ntp_config", passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 
@@ -215,7 +215,7 @@ def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> 
             detail=patterns["fail_detail"].format(violations=", ".join(violations)),
         )
     return ComplianceResult(
-        check_name="syslog_config", passed=True, severity=sev, detail=patterns["pass_detail"]
+        check_name="syslog_config", passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 

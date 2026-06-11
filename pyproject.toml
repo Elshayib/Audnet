@@ -91,10 +91,3 @@ exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.",
 ]
-
-[tool.bandit]
-exclude_dirs = ["tests"]
-skips = []
-
-[tool.bandit.per-file-ignores]
-"src/net_audit/compliance.py" = ["B105"]
