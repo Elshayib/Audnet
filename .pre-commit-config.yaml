@@ -1,0 +1,36 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.7
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        pass_filenames: false
+        additional_dependencies:
+          - netmiko>=4.3.0
+          - textfsm>=1.1.0
+          - jinja2>=3.1.0
+          - pyyaml>=6.0
+          - pydantic>=2.0
+          - typer>=0.12.0
+          - rich>=13.0
+          - structlog>=24.0
+          - tenacity>=8.5.0
+        exclude: ^tests/

@@ -16,4 +16,3 @@ htmlcov/
 audit_report.*
 __pycache__/
 *.pyc
-uv.lock

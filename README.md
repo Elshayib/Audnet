@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    NET-AUDIT ARCHITECTURE                       │
-│                                                                 
+│
 │  ┌──────────┐    ┌──────────────┐    ┌────────────────────┐    │
 │  │  YAML     │───▶│  Collector   │───▶│  TextFSM Parser    │    │
 │  │  Inventory│    │  (Netmiko +  │    │  (CLI → JSON)      │    │
@@ -73,21 +73,25 @@ Every layer is independently testable with mocked responses — no real network 
 git clone https://github.com/islam666/net-audit.git
 cd net-audit
 
-# 2. Create virtual environment
-uv venv .venv
+# 2. Install dependencies (uses uv.lock for reproducible installs)
+uv sync --group dev
+
+# 3. Activate virtual environment
 source .venv/bin/activate
 
-# 3. Install with development dependencies
-uv pip install -e ".[dev]"
+# 4. Install pre-commit hooks
+pre-commit install
 
-# 4. Verify installation
+# 5. Verify installation
 python -c "import net_audit; print(net_audit.__version__)"
 # Expected: 0.1.0
 
-# 5. Run the test suite
+# 6. Run the test suite
 pytest tests/ -v
-# Expected: 31+ passed
+# Expected: 200+ passed
 ```
+
+`uv sync` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
 
 ### Configure device inventory
 
