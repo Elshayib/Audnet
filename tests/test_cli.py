@@ -437,3 +437,216 @@ class TestCliAudit:
         )
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "PASS" in result.output
+
+
+class TestCliDryRun:
+    """Tests for --dry-run mode."""
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_no_ssh_connections(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--dry-run does not call collect_all (no SSH connections)."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_collect.assert_not_called()
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_shows_devices_and_checks(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--dry-run lists devices and checks that would be audited."""
+        mock_inv.return_value = (
+            {},
+            [
+                MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
+                MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
+            ],
+        )
+        mock_bl.return_value = {
+            "checks": {
+                "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"},
+                "inactive_ports": {"severity": "high", "rule": "no_open_ports"},
+            }
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "DRY RUN" in result.output
+        assert "rtr01" in result.output
+        assert "sw01" in result.output
+        assert "ssh_v2_only" in result.output
+        assert "inactive_ports" in result.output
+        assert "Dry run complete" in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_with_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--dry-run with --check shows filtered checks."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {
+                "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"},
+                "inactive_ports": {"severity": "high", "rule": "no_open_ports"},
+            }
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--dry-run",
+                "--check",
+                "ssh_v2_only",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "DRY RUN" in result.output
+        mock_collect.assert_not_called()
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_with_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--dry-run with --device shows only the filtered device."""
+        dev1 = MagicMock(host="10.0.0.1", username="admin", password="x")
+        dev1.name = "rtr01"
+        dev2 = MagicMock(host="10.0.0.2", username="admin", password="x")
+        dev2.name = "sw01"
+        mock_inv.return_value = ({}, [dev1, dev2])
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--dry-run",
+                "--device",
+                "rtr01",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "DRY RUN" in result.output
+        assert "rtr01" in result.output
+        assert "sw01" not in result.output
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_short_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """-n is a valid short flag for --dry-run."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "-n",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "DRY RUN" in result.output
+        mock_collect.assert_not_called()
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_dry_run_validates_config(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--dry-run validates inventory and baseline loading."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "config and baseline are valid" in result.output
