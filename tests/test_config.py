@@ -1,6 +1,6 @@
 import os
 import pytest
-from net_audit.config import load_inventory, load_baseline
+from net_audit.config import load_inventory, load_baseline, _is_plaintext
 from net_audit.exceptions import ConfigError
 
 
@@ -94,3 +94,111 @@ checks:
         bl.write_text("- just\n- a\n- list\n")
         with pytest.raises(ConfigError, match="mapping"):
             load_baseline(str(bl))
+
+
+class TestIsPlaintext:
+    def test_plain_string_is_plaintext(self):
+        assert _is_plaintext("supersecret") is True
+
+    def test_env_var_reference_is_not_plaintext(self):
+        assert _is_plaintext("${NET_AUDIT_PASSWORD}") is False
+
+    def test_empty_string_is_not_plaintext(self):
+        assert _is_plaintext("") is False
+
+    def test_resolved_env_var_is_plaintext(self):
+        """After resolution, the value is plaintext (env var was substituted)."""
+        assert _is_plaintext("resolved_value") is True
+
+
+class TestStrictMode:
+    def test_strict_raises_on_plaintext_password(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: supersecret
+""")
+        with pytest.raises(ConfigError, match="Plaintext passwords"):
+            load_inventory(str(inv), strict=True)
+
+    def test_strict_passes_with_env_var_password(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+""")
+        os.environ["NET_AUDIT_PASSWORD"] = "resolved"
+        try:
+            _, devices = load_inventory(str(inv), strict=True)
+            assert len(devices) == 1
+        finally:
+            del os.environ["NET_AUDIT_PASSWORD"]
+
+    def test_non_strict_warns_on_plaintext_password(self, tmp_path, caplog):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: supersecret
+""")
+        with caplog.at_level("WARNING"):
+            _, devices = load_inventory(str(inv), strict=False)
+        assert len(devices) == 1
+        assert "Plaintext passwords" in caplog.text
+
+    def test_strict_multiple_devices_plaintext(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: secret1
+  - name: rtr02
+    host: 10.0.0.2
+    username: admin
+    password: secret2
+""")
+        with pytest.raises(ConfigError, match="rtr01, rtr02"):
+            load_inventory(str(inv), strict=True)
+
+    def test_strict_mixed_plaintext_and_env_var(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+  - name: rtr02
+    host: 10.0.0.2
+    username: admin
+    password: plaintext_secret
+""")
+        os.environ["NET_AUDIT_PASSWORD"] = "resolved"
+        try:
+            with pytest.raises(ConfigError, match="rtr02"):
+                load_inventory(str(inv), strict=True)
+        finally:
+            del os.environ["NET_AUDIT_PASSWORD"]
+
+    def test_strict_no_password_field(self, tmp_path):
+        """Devices without a password field should not trigger strict mode."""
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    use_keys: true
+""")
+        _, devices = load_inventory(str(inv), strict=True)
+        assert len(devices) == 1
