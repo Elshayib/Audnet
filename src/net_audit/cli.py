@@ -77,10 +77,11 @@ def audit(
         help="Filter to specific checks (repeatable; supports comma-separated in one arg)",
     ),
     json_out: bool = typer.Option(False, "--json", help="Output JSON summary to stdout"),
+    dry_run: bool = typer.Option(False, "-n", "--dry-run", help="Validate config and show what would be audited without connecting to devices"),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
-    Supports device/check filters and JSON output for CI/automation.
+    Supports device/check filters, JSON output, and dry-run mode for CI/automation.
     """
     _setup_logging(verbose)
     console.print(f"[bold blue]net-audit v{__version__} — Starting audit...[/bold blue]")
@@ -94,11 +95,43 @@ def audit(
             console.print(f"[red]Device '{device}' not found in inventory[/red]")
             return
 
-    console.print(f"Loaded {len(devices)} devices, {len(baseline_data.get('checks', {}))} checks")
+    check_names = set(baseline_data.get("checks", {}).keys())
+    console.print(f"Loaded {len(devices)} devices, {len(check_names)} checks")
+
+    if dry_run:
+        console.print("[bold yellow]DRY RUN — no device connections will be made[/bold yellow]")
+        console.print("[yellow]Devices that would be audited:[/yellow]")
+        for d in devices:
+            console.print(f"  • {d.name} ({d.host}) — {d.device_type}")
+        console.print("[yellow]Checks that would be run:[/yellow]")
+        for name in sorted(check_names):
+            console.print(f"  • {name}")
+        if check:
+            check_set = {c.strip() for item in check for c in item.split(",")}
+            unknown = check_set - check_names
+            if unknown:
+                console.print(
+                    f"[yellow]Warning: unknown check(s) {', '.join(sorted(unknown))} — "
+                    f"available: {', '.join(sorted(check_names))}[/yellow]"
+                )
+        console.print("[green]Dry run complete — config and baseline are valid[/green]")
+        return
 
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
     snapshots = collect_all(devices, max_workers=workers)
+
+    # Resolve check filter
+    if check:
+        check_set = {c.strip() for item in check for c in item.split(",")}
+        unknown = check_set - check_names
+        if unknown:
+            console.print(
+                f"[yellow]Warning: unknown check(s) {', '.join(sorted(unknown))} — "
+                f"available: {', '.join(sorted(check_names))}[/yellow]"
+            )
+    else:
+        check_set = set()
 
     # Audit
     reports = []
@@ -109,18 +142,6 @@ def audit(
             continue
 
         results = run_checks(snap, baseline_data)
-        if check:
-            check_set = {c.strip() for item in check for c in item.split(",")}
-            # Validate: warn about unknown check names
-            available = set(baseline_data.get("checks", {}).keys())
-            unknown = check_set - available
-            if unknown:
-                console.print(
-                    f"[yellow]Warning: unknown check(s) {', '.join(sorted(unknown))} — "
-                    f"available: {', '.join(sorted(available))}[/yellow]"
-                )
-        else:
-            check_set = set()
         if check_set:
             results = [r for r in results if r.check_name in check_set]
         overall = all(r.passed for r in results) if results else False
