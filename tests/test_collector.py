@@ -344,3 +344,237 @@ class TestVendorCommands:
         snap = collect_device(device)
         assert snap.collection_error is None
         mock_get_cmds.assert_called_once_with("juniper_junos")
+
+
+class TestRetryBroadened:
+    """Tests for broadened retry coverage on transient Netmiko exceptions."""
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_connection_exception(self, mock_cls) -> None:
+        """ConnectionException is retried as it's in _RETRYABLE_EXCEPTIONS."""
+        from netmiko.exceptions import ConnectionException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionException("Connection reset")
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_read_exception(self, mock_cls) -> None:
+        """ReadException is retried as it's in _RETRYABLE_EXCEPTIONS."""
+        from netmiko.exceptions import ReadException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ReadException("Read timeout")
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_ssh_exception(self, mock_cls) -> None:
+        """SSHException is retried as it's in _RETRYABLE_EXCEPTIONS."""
+        from paramiko.ssh_exception import SSHException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise SSHException("SSH negotiation failed")
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_retries_on_parsing_exception(self, mock_cls) -> None:
+        """NetmikoParsingException is retried as it's in _RETRYABLE_EXCEPTIONS."""
+        from netmiko.exceptions import NetmikoParsingException
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = False
+        mock_conn.send_command.side_effect = [
+            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            "Cisco IOS Software, Version 15.2\nuptime is 5 days",
+            "hostname rtr01\n",
+        ]
+        mock_conn.is_alive.return_value = True
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise NetmikoParsingException("Parse error")
+            return mock_conn
+
+        mock_cls.side_effect = side_effect
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is None
+        assert call_count == 2
+
+    @patch("net_audit.collector.ConnectHandler")
+    def test_no_retry_on_config_invalid_exception(self, mock_cls) -> None:
+        """ConfigInvalidException is NOT retried (not in _RETRYABLE_EXCEPTIONS)."""
+        from netmiko.exceptions import ConfigInvalidException
+
+        mock_cls.side_effect = ConfigInvalidException("Invalid config")
+
+        snap = collect_device(_make_device())
+        assert snap.collection_error is not None
+        assert "Invalid config" in snap.collection_error
+        # Should have been called exactly once (no retries)
+        assert mock_cls.call_count == 1
+
+
+class TestCollectAllTimeout:
+    """Tests for collect_all per-device timeout."""
+
+    @patch("net_audit.collector.collect_device")
+    def test_collect_all_with_timeout(self, mock_collect):
+        """collect_all passes timeout to future.result()."""
+        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
+        mock_collect.return_value = DeviceSnapshot(
+            device_name="rtr01",
+            interfaces=ParsedInterfaces(),
+            version=ParsedVersion(),
+            config=ParsedConfig(),
+        )
+        devices = [_make_device("rtr01")]
+        results = collect_all(devices, max_workers=1, timeout=30.0)
+        assert len(results) == 1
+        assert results[0].collection_error is None
+
+    @patch("net_audit.collector.collect_device")
+    def test_collect_all_timeout_returns_error_snapshot(self, mock_collect):
+        """When a device times out, an error snapshot is returned."""
+        import time
+
+        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
+        # Use a real function that sleeps, executed via the thread pool
+        _sleeping = True
+
+        def slow_collect(device):
+            time.sleep(10)
+            return DeviceSnapshot(
+                device_name=device.name,
+                interfaces=ParsedInterfaces(),
+                version=ParsedVersion(),
+                config=ParsedConfig(),
+            )
+
+        mock_collect.side_effect = slow_collect
+        devices = [_make_device("rtr01")]
+        results = collect_all(devices, max_workers=1, timeout=0.5)
+
+        assert len(results) == 1
+        assert results[0].collection_error is not None
+        assert "timed out" in results[0].collection_error
+        assert "0.5s" in results[0].collection_error
+
+    @patch("net_audit.collector.collect_device")
+    def test_collect_all_timeout_mixed_results(self, mock_collect):
+        """Timeout on one device, success on another."""
+        import time
+
+        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
+        def mixed_collect(device):
+            if device.name == "slow":
+                time.sleep(10)
+            return DeviceSnapshot(
+                device_name=device.name,
+                interfaces=ParsedInterfaces(),
+                version=ParsedVersion(),
+                config=ParsedConfig(),
+            )
+
+        mock_collect.side_effect = mixed_collect
+        devices = [_make_device("fast", "10.0.0.1"), _make_device("slow", "10.0.0.2")]
+        results = collect_all(devices, max_workers=2, timeout=0.5)
+
+        assert len(results) == 2
+        by_name = {r.device_name: r for r in results}
+        assert by_name["fast"].collection_error is None
+        assert by_name["slow"].collection_error is not None
+        assert "timed out" in by_name["slow"].collection_error
+
+    def test_collect_all_no_timeout_by_default(self):
+        """collect_all without timeout works as before (no timeout parameter)."""
+        from unittest.mock import patch
+
+        with patch("net_audit.collector.collect_device") as mock_collect:
+            from net_audit.models import (
+                DeviceSnapshot,
+                ParsedInterfaces,
+                ParsedVersion,
+                ParsedConfig,
+            )
+
+            mock_collect.return_value = DeviceSnapshot(
+                device_name="rtr01",
+                interfaces=ParsedInterfaces(),
+                version=ParsedVersion(),
+                config=ParsedConfig(),
+            )
+            devices = [_make_device("rtr01"), _make_device("rtr02", "10.0.0.2")]
+            results = collect_all(devices, max_workers=2)
+            assert len(results) == 2
