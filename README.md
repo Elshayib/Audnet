@@ -222,9 +222,10 @@ net-audit/
 │   ├── cli.py                  # Typer CLI entry point
 │   ├── config.py               # YAML inventory/baseline loader with env resolution
 │   ├── models.py               # Pydantic data models (incl. SecurityBaseline)
-│   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries + multi-vendor start)
-│   ├── parser.py               # TextFSM parser (CLI → structured JSON)
-│   ├── compliance.py           # Rule engine (4 security checks)
+│   ├── vendor_registry.py      # Vendor registry for multi-vendor dispatch
+│   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries)
+│   ├── parser.py               # TextFSM parser (CLI → structured JSON, vendor-aware)
+│   ├── compliance.py           # Rule engine (4 security checks, vendor-pattern overrides)
 │   └── reporter.py             # Jinja2 report generator (Markdown + HTML)
 ├── templates/
 │   ├── audit_report.md.j2      # Markdown report template
@@ -239,13 +240,115 @@ net-audit/
 │   └── security_baseline.yaml  # Compliance rules configuration
 └── tests/
     ├── conftest.py             # Shared pytest fixtures
-    ├── test_models.py          # 6 tests — Device, ComplianceResult, AuditReport
-    ├── test_config.py          # 3 tests — inventory loading, env resolution
-    ├── test_collector.py       # 3 tests — SSH collection, error handling
-    ├── test_parser.py          # 6 tests — TextFSM parsing for all 3 commands
-    ├── test_compliance.py      # 9 tests — all 4 rule types (pass/fail)
-    └── test_reporter.py          # 4 tests — Markdown/HTML rendering
+    ├── test_models.py          # Device, ComplianceResult, AuditReport
+    ├── test_config.py          # Inventory loading, env resolution
+    ├── test_collector.py       # SSH collection, error handling, vendor dispatch
+    ├── test_parser.py          # TextFSM parsing, vendor-aware template selection
+    ├── test_compliance.py      # All 4 rule types (pass/fail), case-insensitive
+    ├── test_reporter.py        # Markdown/HTML rendering
+    └── test_vendor_registry.py # Vendor profiles, dispatch, registration
 ```
+
+## Multi-Vendor Support
+
+net-audit uses a vendor registry/dispatch pattern (similar to NAPALM/Nornir driver architecture) for multi-vendor support. Device types are resolved automatically, with Cisco IOS as the fallback default.
+
+### Supported vendors
+
+| Vendor | device_type | Template prefix |
+|--------|-------------|-----------------|
+| Cisco IOS/IOS-XE | `cisco_ios` | `cisco_ios` |
+| Cisco NX-OS | `cisco_nxos` | `cisco_nxos` |
+| Arista EOS | `arista_eos` | `arista_eos` |
+
+Unknown device types fall back to `cisco_ios` commands and templates.
+
+### Configuring devices for different vendors
+
+Set `device_type` per-device or as a default in your inventory YAML:
+
+```yaml
+defaults:
+  device_type: cisco_ios
+
+devices:
+  - name: core-router-01
+    host: 192.168.1.1
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+
+  - name: nexus-switch-01
+    host: 192.168.1.2
+    device_type: cisco_nxos
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+
+  - name: arista-leaf-01
+    host: 192.168.1.3
+    device_type: arista_eos
+    username: admin
+    password: "${NET_AUDIT_PASSWORD}"
+```
+
+### Adding a new vendor
+
+Three steps — no changes to parser, collector, or compliance code:
+
+**1. Add TextFSM templates** following the naming convention `<prefix>_<slot_suffix>.textfsm` in `textfsm_templates/`:
+
+```
+textfsm_templates/
+├── juniper_junos_show_ip_interface_brief.textfsm
+├── juniper_junos_show_version.textfsm
+└── juniper_junos_show_running_config.textfsm
+```
+
+**2. Register the vendor** — either add to `VENDOR_PROFILES` in `vendor_registry.py`:
+
+```python
+VENDOR_PROFILES["juniper_junos"] = _profile(
+    commands=[
+        "show interfaces terse",
+        "show version",
+        "show configuration",
+    ],
+    prefix="juniper_junos",
+    description="Juniper JunOS",
+)
+```
+
+Or register at runtime:
+
+```python
+from net_audit.vendor_registry import register_vendor
+
+register_vendor(
+    device_type="juniper_junos",
+    commands=["show interfaces terse", "show version", "show configuration"],
+    template_prefix="juniper_junos",
+)
+```
+
+**3. (Optional) Add vendor-specific compliance patterns** in your baseline YAML if the vendor uses different CLI syntax:
+
+```yaml
+checks:
+  ssh_version:
+    severity: critical
+    rule: ssh_v2_only
+    vendor_patterns:
+      default:
+        match: "set system ssh"
+        ok_value: "set system ssh protocol-v2"
+```
+
+### How it works
+
+- `vendor_registry.py` maps `device_type` to CLI commands and TextFSM template prefixes
+- `collector.py` calls `get_commands(device_type)` instead of a hardcoded dict
+- `parser.py` calls `get_template_name(device_type, slot)` for dynamic template loading
+- `compliance.py` uses pattern-based matching with optional per-vendor overrides
+- All vendor resolution falls back to `cisco_ios` for unknown device types
 
 ## Compliance Checks
 
