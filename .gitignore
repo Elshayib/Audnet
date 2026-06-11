@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -5,15 +6,19 @@ __pycache__/
 .eggs/
 dist/
 build/
-.venv/
 *.egg
+
+# Virtual environments
+.venv/
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
-*.html
-*.md
-!README.md
-!CHANGELOG.md
+
+# Generated reports (created by running net-audit)
 audit_report.*
-__pycache__/
-*.pyc
+
+# User data — never commit real device inventories or baselines with credentials
+inventories/
+baselines/
