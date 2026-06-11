@@ -80,6 +80,10 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["paramiko.ssh_exception"]
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["src/net_audit"]
 branch = true
@@ -94,5 +98,4 @@ exclude_lines = [
 
 [dependency-groups]
 dev = [
-    "types-paramiko>=4.0.0.20260518",
 ]
