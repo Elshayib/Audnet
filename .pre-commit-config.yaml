@@ -23,6 +23,7 @@ repos:
     hooks:
       - id: mypy
         pass_filenames: false
+        args: [src/]
         additional_dependencies:
           - netmiko>=4.3.0
           - textfsm>=1.1.0
@@ -33,4 +34,3 @@ repos:
           - rich>=13.0
           - structlog>=24.0
           - tenacity>=8.5.0
-        exclude: ^tests/

@@ -636,3 +636,7 @@ devices:
 - Rotate credentials regularly
 
 See [SECURITY.md](SECURITY.md) for the full security policy, vulnerability reporting, and responsible disclosure.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes, new features, and bug fixes.
