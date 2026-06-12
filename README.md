@@ -2,8 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![CI](https://github.com/islam666/net-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/islam666/net-audit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/islam666/net-audit)](https://github.com/islam666/net-audit/releases/latest)
+[![CI](https://github.com/islam666/Audnet/actions/workflows/ci.yml/badge.svg)](https://github.com/islam666/Audnet/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/islam666/Audnet)](https://github.com/islam666/Audnet/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/audnet.svg)](https://pypi.org/project/audnet/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/audnet.svg)](https://pypi.org/project/audnet/)
 
@@ -73,7 +73,7 @@ pip install audnet
 uv tool install audnet
 
 # From source (latest development version)
-pip install git+https://github.com/islam666/net-audit.git
+pip install git+https://github.com/islam666/Audnet.git
 
 # Verify
 audnet --version
@@ -91,7 +91,7 @@ audnet --version
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/islam666/net-audit.git
+git clone https://github.com/islam666/Audnet.git
 cd audnet
 
 # 2. Install dependencies (uses uv.lock for reproducible installs)

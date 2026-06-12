@@ -5,7 +5,7 @@ Thanks for your interest in improving audnet!
 ## Development Setup
 
 ```bash
-git clone https://github.com/islam666/net-audit.git
+git clone https://github.com/islam666/Audnet.git
 cd audnet
 uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
