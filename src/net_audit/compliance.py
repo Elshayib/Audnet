@@ -116,24 +116,20 @@ def _check_no_open_ports(
     match = patterns["match"]
     iface_prefix = patterns["iface_prefix"]
 
-    for i, line in enumerate(lines):
+    current_iface = "unknown"
+    for line in lines:
+        stripped = line.strip()
+        if stripped.lower().startswith(iface_prefix):
+            current_iface = stripped.split(" ", 1)[1]
         if match not in line.lower():
             continue
-        parts = line.strip().split()
+        parts = stripped.split()
         if len(parts) < 4:
             continue
         vlan = parts[-1]
         if vlan in allowed:
             continue
-
-        # Walk backwards to find the interface name
-        iface = "unknown"
-        for j in range(i - 1, max(i - 10, -1), -1):
-            stripped = lines[j].strip()
-            if stripped.lower().startswith(iface_prefix):
-                iface = stripped.split(" ", 1)[1]
-                break
-        violations.append(f"{iface} in VLAN {vlan}")
+        violations.append(f"{current_iface} in VLAN {vlan}")
 
     sev = config["severity"]
     if violations:
