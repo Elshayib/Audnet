@@ -19,6 +19,7 @@ from netmiko.exceptions import (
 from paramiko.ssh_exception import SSHException
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
+from net_audit.exceptions import ParseError
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from net_audit.parser import parse_interfaces, parse_version, parse_config
 from net_audit.vendor_registry import get_commands
@@ -96,11 +97,12 @@ def collect_device(device: Device) -> DeviceSnapshot:
         ConfigInvalidException,
         ConnectionException,
         ReadException,
-        SSHException,
         NetmikoParsingException,
+        SSHException,
         OSError,
         ValueError,
         ConnectionError,
+        ParseError,
     ) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
