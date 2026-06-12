@@ -80,7 +80,7 @@ async def _do_ssh_collect(device: Device) -> list[str]:
         username=device.username,
         password=password,
         known_hosts=None,
-        connect_timeout=str(device.timeout) if device.timeout else "30",
+        connect_timeout=device.timeout or 30,
     ) as conn:
         results: list[str] = []
         for cmd in commands:
