@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/islam666/net-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/islam666/net-audit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/islam666/audnet)](https://github.com/islam666/net-audit/releases/latest)
+[![Release](https://img.shields.io/github/v/release/islam666/net-audit)](https://github.com/islam666/net-audit/releases/latest)
 [![PyPI](https://img.shields.io/pypi/v/audnet.svg)](https://pypi.org/project/audnet/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/audnet.svg)](https://pypi.org/project/audnet/)
 

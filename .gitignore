@@ -16,7 +16,7 @@ build/
 .coverage
 htmlcov/
 
-# Generated reports (created by running net-audit)
+# Generated reports (created by running audnet)
 audit_report.*
 
 # User data — never commit real device inventories or baselines with credentials
