@@ -894,3 +894,80 @@ class TestCliExitCode:
         )
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "FAIL" in result.output
+
+
+class TestCliAsyncMode:
+    """Tests for --async flag integration with async collector."""
+
+    @patch("net_audit.cli._collect_all_async")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_async_flag_calls_async_collector(
+        self, mock_inv, mock_bl, mock_collect_async, tmp_path
+    ):
+        """--async flag routes to collect_all_async instead of collect_all."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+
+        async def _fake_async(*args, **kwargs):
+            return [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+
+        mock_collect_async.side_effect = _fake_async
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--async",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_collect_async.assert_called_once()
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli._collect_all_async")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_default_uses_sync_collector(
+        self, mock_inv, mock_bl, mock_collect_async, mock_collect_sync, tmp_path
+    ):
+        """Without --async, sync collect_all is used."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect_sync.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_collect_sync.assert_called_once()
+        mock_collect_async.assert_not_called()
