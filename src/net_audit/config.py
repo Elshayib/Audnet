@@ -80,10 +80,16 @@ def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], lis
 
     raw_data = _deep_resolve(data)
     defaults = raw_data.get("defaults", {})
-    devices = []
+    devices: list[Device] = []
     for entry in raw_data.get("devices", []):
         merged = {**defaults, **entry}
-        devices.append(Device(**merged))
+        try:
+            devices.append(Device(**merged))
+        except ValidationError as exc:
+            name = merged.get("name", merged.get("host", "unknown"))
+            logger.warning("Skipping invalid device '%s': %s", name, exc)
+    if not devices:
+        raise ConfigError("No valid devices found in inventory")
     logger.info("Loaded %d devices", len(devices))
     return defaults, devices
 
