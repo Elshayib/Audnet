@@ -4,6 +4,7 @@ Uses the vendor registry for multi-vendor command dispatch.
 """
 
 import logging
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
@@ -128,21 +129,44 @@ def collect_all(
             longer than this, its collection is aborted and an error snapshot
             is returned. None means no timeout.
     """
-    results: list[DeviceSnapshot] = []
+    from time import monotonic
+
+    deadline = monotonic() + timeout if timeout else None
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_map = {pool.submit(collect_device, d): d for d in devices}
-        for future, dev in future_map.items():
-            try:
-                results.append(future.result(timeout=timeout))
-            except TimeoutError:
-                logger.error("Collection from %s timed out after %ss", dev.name, timeout)
-                results.append(
-                    DeviceSnapshot(
+        future_to_dev = {pool.submit(collect_device, d): d for d in devices}
+        pending = set(future_to_dev)
+        completed: dict[str, DeviceSnapshot] = {}
+        while pending:
+            wait_timeout = None
+            if deadline:
+                wait_timeout = max(0, deadline - monotonic())
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=wait_timeout,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            for future in done:
+                dev = future_to_dev[future]
+                try:
+                    completed[dev.name] = future.result(timeout=0)
+                except TimeoutError:
+                    logger.error("Collection from %s timed out after %ss", dev.name, timeout)
+                    completed[dev.name] = DeviceSnapshot(
                         device_name=dev.name,
                         interfaces=ParsedInterfaces(),
                         version=ParsedVersion(),
                         config=ParsedConfig(),
                         collection_error=f"Collection timed out after {timeout}s",
                     )
-                )
-    return results
+            if deadline and monotonic() >= deadline:
+                for fut in pending:
+                    d = future_to_dev[fut]
+                    completed[d.name] = DeviceSnapshot(
+                        device_name=d.name,
+                        interfaces=ParsedInterfaces(),
+                        version=ParsedVersion(),
+                        config=ParsedConfig(),
+                        collection_error=f"Collection timed out after {timeout}s",
+                    )
+                break
+    return [completed[d.name] for d in devices]
