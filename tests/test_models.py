@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from net_audit.models import Device, ComplianceResult, AuditReport
+from net_audit.models import Device, ComplianceResult, AuditReport, ParsedVersion
 
 
 class TestDevice:
@@ -141,3 +141,20 @@ class TestAuditReport:
         )
         assert report.pass_count == 1
         assert report.fail_count == 1
+
+
+class TestParsedVersion:
+    def test_extra_fields_ignored(self):
+        """Extra TextFSM fields (e.g. model, platform) must not crash."""
+        v = ParsedVersion(
+            version="15.2(4)",
+            hostname="router",
+            uptime="5 days",
+            serial="ABC123",
+            raw="test",
+            model="C9300",
+            platform="IOS-XE",
+        )
+        assert v.version == "15.2(4)"
+        assert v.hostname == "router"
+        assert v.serial == "ABC123"
