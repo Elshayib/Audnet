@@ -1,8 +1,9 @@
 Value VERSION ([\d\(\)\.]+)
+Value HOSTNAME (\S+)
 Value UPTIME (.+)
 Value SERIAL (.+)
 
 Start
   ^Cisco IOS Software.*Version\s+${VERSION}
-  ^.*uptime is\s+${UPTIME}
+  ^${HOSTNAME}\s+uptime is\s+${UPTIME}
   ^System Serial Number\s*:\s*${SERIAL}
