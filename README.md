@@ -210,6 +210,24 @@ Filter to one device or specific checks, output JSON for scripting:
 net-audit audit --device core-router-01 --check ssh_v2_only,ntp_config --json
 ```
 
+### Async mode (recommended for >20 devices)
+
+The asyncio-based collector uses `asyncssh` for lower memory overhead and better
+scalability. It is recommended for audits involving more than 20 devices.
+
+```bash
+net-audit audit --async
+```
+
+Trade-offs vs the default sync collector:
+
+| | Sync (default) | Async (`--async`) |
+|---|---|---|
+| Dependency | Netmiko | asyncssh |
+| Concurrency | ThreadPool | asyncio Semaphore |
+| Best for | <20 devices | >20 devices |
+| Memory per connection | Higher (thread stack) | Lower (coroutine) |
+
 ### Usage Examples
 
 All examples below use the default inventory and baseline paths. Adjust as needed.

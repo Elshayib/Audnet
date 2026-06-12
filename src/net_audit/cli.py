@@ -17,6 +17,9 @@ from net_audit.config import load_inventory, load_baseline
 from net_audit.models import AuditReport
 from net_audit.reporter import render_markdown, render_html
 
+# Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
+_collect_all_async = None
+
 app = typer.Typer(help="Network Security & Compliance State Auditor")
 console = Console()
 logger = structlog.get_logger("net_audit")
@@ -93,6 +96,11 @@ def audit(
         "--no-fail",
         help="Always exit 0 even on compliance failures (informational mode)",
     ),
+    async_mode: bool = typer.Option(
+        False,
+        "--async",
+        help="Use asyncio-based SSH collector (recommended for >20 devices)",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -134,7 +142,17 @@ def audit(
 
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
-    snapshots = collect_all(devices, max_workers=workers)
+    if async_mode:
+        import asyncio
+
+        global _collect_all_async
+        if _collect_all_async is None:
+            from net_audit.collector_async import collect_all_async
+
+            _collect_all_async = collect_all_async
+        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers))
+    else:
+        snapshots = collect_all(devices, max_workers=workers)
 
     # Resolve check filter
     if check:
