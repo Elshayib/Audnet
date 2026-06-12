@@ -98,6 +98,7 @@ class CheckConfig(BaseModel):
     rule: str
     allowed_vlans: list[int] | None = None
     approved_servers: list[str] | None = None
+    vendor_patterns: dict[str, dict[str, str]] | None = None
 
 
 class SecurityBaseline(BaseModel):
