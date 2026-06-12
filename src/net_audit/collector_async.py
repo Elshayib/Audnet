@@ -40,7 +40,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.vendor_registry import get_commands
+from net_audit.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def _is_retryable(exc: BaseException) -> bool:
     retry=retry_if_exception(_is_retryable),
     reraise=True,
 )
-async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> list[str]:
+async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> dict[Slot, str]:
     """Perform async SSH collection with retry for transient errors.
 
     Args:
@@ -81,6 +81,7 @@ async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> lis
     """
     commands = get_commands(device.device_type)
     password = device.get_password()
+    slot_map = (Slot.INTERFACES, Slot.VERSION, Slot.RUNNING_CONFIG)
     async with asyncssh.connect(
         device.host,
         port=device.port,
@@ -89,10 +90,10 @@ async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> lis
         known_hosts=known_hosts,
         connect_timeout=device.timeout or 30,
     ) as conn:
-        results: list[str] = []
-        for cmd in commands:
+        results: dict[Slot, str] = {}
+        for slot, cmd in zip(slot_map, commands):
             result = await conn.run(cmd, timeout=device.timeout)
-            results.append(cast(str, result.stdout))
+            results[slot] = cast(str, result.stdout)
         return results
 
 
@@ -116,14 +117,19 @@ async def collect_device_async(
         raw_outputs = await _do_ssh_collect(device, known_hosts=known_hosts)
 
         logger.info("Successfully collected from %s", device.name)
-        parsed_version = parse_version(raw_outputs[1], device_type=device.device_type)
+        parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
             interfaces=ParsedInterfaces(
-                interfaces=parse_interfaces(raw_outputs[0], device_type=device.device_type)
+                interfaces=parse_interfaces(
+                    raw_outputs[Slot.INTERFACES], device_type=device.device_type
+                )
             ),
-            version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
-            config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
+            version=ParsedVersion(**parsed_version, raw=raw_outputs[Slot.VERSION]),
+            config=ParsedConfig(
+                lines=parse_config(raw_outputs[Slot.RUNNING_CONFIG]),
+                raw=raw_outputs[Slot.RUNNING_CONFIG],
+            ),
         )
     except (
         PermissionDenied,

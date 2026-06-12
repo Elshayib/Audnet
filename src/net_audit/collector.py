@@ -23,7 +23,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from net_audit.exceptions import ParseError
 from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.vendor_registry import get_commands
+from net_audit.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +55,11 @@ def _is_retryable(exc: BaseException) -> bool:
     retry=retry_if_exception(_is_retryable),
     reraise=True,
 )
-def _do_ssh_collect(device: Device) -> list[str]:
+def _do_ssh_collect(device: Device) -> dict[Slot, str]:
     """Internal function that performs the actual SSH collection.
+
     Retries transient errors up to 3 times with exponential backoff.
+    Returns a dict mapping Slot -> raw CLI output.
     """
     params = {
         "device_type": device.device_type,
@@ -72,8 +74,9 @@ def _do_ssh_collect(device: Device) -> list[str]:
         if device.key_file:
             params["key_file"] = device.key_file
     commands = get_commands(device.device_type)
+    slot_map = (Slot.INTERFACES, Slot.VERSION, Slot.RUNNING_CONFIG)
     with ConnectHandler(**params) as conn:
-        return [cast(str, conn.send_command(cmd)) for cmd in commands]
+        return {slot: cast(str, conn.send_command(cmd)) for slot, cmd in zip(slot_map, commands)}
 
 
 def collect_device(device: Device) -> DeviceSnapshot:
@@ -83,14 +86,19 @@ def collect_device(device: Device) -> DeviceSnapshot:
         raw_outputs = _do_ssh_collect(device)
 
         logger.info("Successfully collected from %s", device.name)
-        parsed_version = parse_version(raw_outputs[1], device_type=device.device_type)
+        parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
             interfaces=ParsedInterfaces(
-                interfaces=parse_interfaces(raw_outputs[0], device_type=device.device_type)
+                interfaces=parse_interfaces(
+                    raw_outputs[Slot.INTERFACES], device_type=device.device_type
+                )
             ),
-            version=ParsedVersion(**parsed_version, raw=raw_outputs[1]),
-            config=ParsedConfig(lines=parse_config(raw_outputs[2]), raw=raw_outputs[2]),
+            version=ParsedVersion(**parsed_version, raw=raw_outputs[Slot.VERSION]),
+            config=ParsedConfig(
+                lines=parse_config(raw_outputs[Slot.RUNNING_CONFIG]),
+                raw=raw_outputs[Slot.RUNNING_CONFIG],
+            ),
         )
     except (
         NetmikoTimeoutException,

@@ -2,6 +2,7 @@
 
 import pytest
 from net_audit.vendor_registry import (
+    Slot,
     get_commands,
     get_template_name,
     get_vendor_profile,
@@ -59,27 +60,27 @@ class TestGetCommands:
 
 class TestGetTemplateName:
     def test_cisco_ios_interface_template(self):
-        name = get_template_name("cisco_ios", slot=0)
+        name = get_template_name("cisco_ios", slot=Slot.INTERFACES)
         assert name == "cisco_ios_show_ip_interface_brief"
 
     def test_cisco_ios_version_template(self):
-        name = get_template_name("cisco_ios", slot=1)
+        name = get_template_name("cisco_ios", slot=Slot.VERSION)
         assert name == "cisco_ios_show_version"
 
     def test_cisco_ios_config_template(self):
-        name = get_template_name("cisco_ios", slot=2)
+        name = get_template_name("cisco_ios", slot=Slot.RUNNING_CONFIG)
         assert name == "cisco_ios_show_running_config"
 
     def test_arista_eos_template(self):
-        name = get_template_name("arista_eos", slot=0)
+        name = get_template_name("arista_eos", slot=Slot.INTERFACES)
         assert name == "arista_eos_show_ip_interface_brief"
 
     def test_cisco_nxos_template(self):
-        name = get_template_name("cisco_nxos", slot=1)
+        name = get_template_name("cisco_nxos", slot=Slot.VERSION)
         assert name == "cisco_nxos_show_version"
 
     def test_unknown_type_uses_cisco_ios_templates(self):
-        name = get_template_name("unknown_vendor", slot=0)
+        name = get_template_name("unknown_vendor", slot=Slot.INTERFACES)
         assert name == "cisco_ios_show_ip_interface_brief"
 
 
@@ -108,13 +109,13 @@ class TestRegisterVendor:
                 "show config running",
             ],
             template_prefix="paloalto_panos",
-            template_suffixes=(
-                "show_interface_all",
-                "show_system_info",
-                "show_config_running",
-            ),
+            template_suffixes={
+                Slot.INTERFACES: "show_interface_all",
+                Slot.VERSION: "show_system_info",
+                Slot.RUNNING_CONFIG: "show_config_running",
+            },
         )
-        name = get_template_name("paloalto_panos", slot=0)
+        name = get_template_name("paloalto_panos", slot=Slot.INTERFACES)
         assert name == "paloalto_panos_show_interface_all"
 
     def test_register_vendor_without_suffixes_uses_defaults(self):
@@ -123,7 +124,7 @@ class TestRegisterVendor:
             commands=["cmd1", "cmd2", "cmd3"],
             template_prefix="test_vendor",
         )
-        name = get_template_name("test_vendor", slot=0)
+        name = get_template_name("test_vendor", slot=Slot.INTERFACES)
         assert name == "test_vendor_show_ip_interface_brief"
 
 
