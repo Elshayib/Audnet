@@ -29,6 +29,16 @@ class TestParseVersion:
         result = parse_version(raw)
         assert "15.2" in result.get("version", "")
         assert "5 days" in result.get("uptime", "")
+        assert result.get("hostname") == "router"
+
+    def test_parses_hostname(self):
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "Test1 uptime is 2 minutes\n"
+        )
+        result = parse_version(raw)
+        assert result.get("hostname") == "Test1"
 
     def test_parses_serial(self):
         raw = (
