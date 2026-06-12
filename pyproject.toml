@@ -89,7 +89,7 @@ module = ["paramiko.ssh_exception"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["src/audnet"]
+source = ["audnet"]
 branch = true
 
 [tool.coverage.report]
