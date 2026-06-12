@@ -91,7 +91,7 @@ class TestCliAudit:
         result = runner.invoke(
             app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)]
         )
-        assert result.exit_code == 0, f"Output: {result.output}"
+        assert result.exit_code == 1, f"Output: {result.output}"
         assert "FAIL" in result.output
 
     @patch("net_audit.cli.collect_all")
@@ -119,7 +119,7 @@ class TestCliAudit:
         result = runner.invoke(
             app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)]
         )
-        assert result.exit_code == 0, f"Output: {result.output}"
+        assert result.exit_code == 1, f"Output: {result.output}"
         assert "ERROR" in result.output
         assert "Connection timed out" in result.output
 
@@ -180,7 +180,7 @@ class TestCliAudit:
         result = runner.invoke(
             app, ["audit", "--inventory", str(inv), "--baseline", str(bl), "--output", str(out)]
         )
-        assert result.exit_code == 0, f"Output: {result.output}"
+        assert result.exit_code == 1, f"Output: {result.output}"
         assert "rtr01" in result.output
         assert "sw01" in result.output
 
@@ -397,7 +397,7 @@ class TestCliAudit:
                 "nonexistent_check",
             ],
         )
-        assert result.exit_code == 0, f"Output: {result.output}"
+        assert result.exit_code == 1, f"Output: {result.output}"
         assert "Warning" in result.output
         assert "nonexistent_check" in result.output
         assert "unknown check" in result.output
@@ -856,3 +856,41 @@ class TestCliDryRun:
         mock_collect.assert_not_called()
         assert "DRY RUN" in result.output
         assert "rtr01" in result.output
+
+
+class TestCliExitCode:
+    """Tests for non-zero exit code on compliance failures."""
+
+    @patch("net_audit.cli.collect_all")
+    @patch("net_audit.cli.load_baseline")
+    @patch("net_audit.cli.load_inventory")
+    def test_no_fail_flag_ignores_compliance_failures(
+        self, mock_inv, mock_bl, mock_collect, tmp_path
+    ):
+        """--no-fail always exits 0 even when checks fail."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 1"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--no-fail",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "FAIL" in result.output

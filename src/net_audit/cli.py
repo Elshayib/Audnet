@@ -88,6 +88,11 @@ def audit(
         "--strict",
         help="Fail if any device has a plaintext password (no ${ENV_VAR} reference)",
     ),
+    no_fail: bool = typer.Option(
+        False,
+        "--no-fail",
+        help="Always exit 0 even on compliance failures (informational mode)",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -184,6 +189,9 @@ def audit(
     if json_out:
         json_data = [r.model_dump(mode="json") for r in reports]
         console.print_json(json.dumps(json_data))
+
+    if not no_fail and reports and not all(r.overall_pass for r in reports):
+        raise typer.Exit(code=1)
 
 
 @app.command()
