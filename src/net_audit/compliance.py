@@ -62,7 +62,9 @@ def _get_patterns(rule: str, check_config: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
-def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
+def _check_ssh_v2_only(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "ssh_v2_only"
+) -> ComplianceResult:
     lines = snapshot.config.lines
     sev = config["severity"]
     patterns = _get_patterns("ssh_v2_only", config)
@@ -74,7 +76,7 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
     if not ssh_version_lines:
         logger.warning("%s: no '%s' directive found", snapshot.device_name, match)
         return ComplianceResult(
-            check_name="ssh_v2_only",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail_missing"],
@@ -85,7 +87,7 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
         if fail_value in line_lower:
             logger.info("%s: SSHv1 detected", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_v2_only",
+                check_name=check_name,
                 passed=False,
                 severity=sev,
                 detail=patterns["fail_detail_v1"],
@@ -93,18 +95,20 @@ def _check_ssh_v2_only(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Comp
         if ok_value in line_lower:
             logger.info("%s: SSHv2 confirmed", snapshot.device_name)
             return ComplianceResult(
-                check_name="ssh_v2_only", passed=True, severity=sev, detail=patterns["ok_detail"]
+                check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
             )
 
     return ComplianceResult(
-        check_name="ssh_v2_only",
+        check_name=check_name,
         passed=False,
         severity=sev,
         detail=patterns["fail_detail_unexpected"].format(lines="; ".join(ssh_version_lines)),
     )
 
 
-def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
+def _check_no_open_ports(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "inactive_ports"
+) -> ComplianceResult:
     allowed = set(str(v) for v in config.get("allowed_vlans", []))
     lines = snapshot.config.lines
     violations: list[str] = []
@@ -135,17 +139,19 @@ def _check_no_open_ports(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Co
     if violations:
         logger.info("%s: unauthorized VLANs: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="inactive_ports",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail"].format(violations="; ".join(violations)),
         )
     return ComplianceResult(
-        check_name="inactive_ports", passed=True, severity=sev, detail=patterns["ok_detail"]
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 
-def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
+def _check_ntp_approved(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "ntp_config"
+) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
     patterns = _get_patterns("ntp_approved", config)
     match = patterns["match"]
@@ -155,7 +161,7 @@ def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Com
     if not ntp_lines:
         logger.warning("%s: no NTP servers configured", snapshot.device_name)
         return ComplianceResult(
-            check_name="ntp_config",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail_missing"],
@@ -172,17 +178,19 @@ def _check_ntp_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> Com
     if violations:
         logger.info("%s: unapproved NTP servers: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="ntp_config",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail"].format(violations=", ".join(violations)),
         )
     return ComplianceResult(
-        check_name="ntp_config", passed=True, severity=sev, detail=patterns["ok_detail"]
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 
-def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> ComplianceResult:
+def _check_syslog_approved(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "syslog_config"
+) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
     patterns = _get_patterns("syslog_approved", config)
     match = patterns["match"]
@@ -192,7 +200,7 @@ def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> 
     if not syslog_lines:
         logger.warning("%s: no syslog servers configured", snapshot.device_name)
         return ComplianceResult(
-            check_name="syslog_config",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail_missing"],
@@ -209,13 +217,13 @@ def _check_syslog_approved(snapshot: DeviceSnapshot, config: dict[str, Any]) -> 
     if violations:
         logger.info("%s: unapproved syslog servers: %s", snapshot.device_name, violations)
         return ComplianceResult(
-            check_name="syslog_config",
+            check_name=check_name,
             passed=False,
             severity=sev,
             detail=patterns["fail_detail"].format(violations=", ".join(violations)),
         )
     return ComplianceResult(
-        check_name="syslog_config", passed=True, severity=sev, detail=patterns["ok_detail"]
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
     )
 
 
@@ -242,5 +250,5 @@ def run_checks(snapshot: DeviceSnapshot, baseline: dict[str, Any]) -> list[Compl
                 )
             )
         else:
-            results.append(handler(snapshot, check_config))
+            results.append(handler(snapshot, check_config, check_name))
     return results
