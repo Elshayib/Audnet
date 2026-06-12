@@ -79,6 +79,41 @@ async def test_collect_device_async_success():
 
 
 @pytest.mark.asyncio
+async def test_collect_device_async_passes_numeric_connect_timeout():
+    """asyncssh expects connect_timeout to be numeric, not a string."""
+    device = _make_device()
+    device.timeout = 12
+    outputs = _mock_raw_outputs()
+    captured_kwargs = {}
+    call_count = 0
+
+    async def _run_side_effect(*args, **kwargs):
+        nonlocal call_count
+        result = MagicMock()
+        result.stdout = outputs[min(call_count, len(outputs) - 1)]
+        call_count += 1
+        return result
+
+    mock_conn = AsyncMock()
+    mock_conn.run = AsyncMock(side_effect=_run_side_effect)
+
+    @asynccontextmanager
+    async def _connect_cm(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        yield mock_conn
+
+    mock_mod = MagicMock()
+    mock_mod.connect = _connect_cm
+
+    with patch("net_audit.collector_async.asyncssh", mock_mod):
+        snapshot = await collect_device_async(device)
+
+    assert snapshot.collection_error is None
+    assert captured_kwargs["connect_timeout"] == 12
+    assert isinstance(captured_kwargs["connect_timeout"], int)
+
+
+@pytest.mark.asyncio
 async def test_collect_device_async_auth_failure():
     """Async collector returns error snapshot on auth failure."""
     device = _make_device()
