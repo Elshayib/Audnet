@@ -12,8 +12,8 @@ import pytest
 from asyncssh import DisconnectError, PermissionDenied
 from pydantic import SecretStr
 
-from net_audit.collector_async import collect_all_async, collect_device_async
-from net_audit.models import Device
+from audnet.collector_async import collect_all_async, collect_device_async
+from audnet.models import Device
 
 
 def _make_device(name: str = "test-device", host: str = "10.0.0.1") -> Device:
@@ -70,7 +70,7 @@ async def test_collect_device_async_success():
     device = _make_device()
     mock_mod = _make_mock_ssh()
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         snapshot = await collect_device_async(device)
 
     assert snapshot.device_name == "test-device"
@@ -91,7 +91,7 @@ async def test_collect_device_async_auth_failure():
     mock_mod = MagicMock()
     mock_mod.connect = _connect_cm
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         snapshot = await collect_device_async(device)
 
     assert snapshot.device_name == "test-device"
@@ -112,7 +112,7 @@ async def test_collect_device_async_connection_lost():
     mock_mod = MagicMock()
     mock_mod.connect = _connect_cm
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         snapshot = await collect_device_async(device)
 
     assert snapshot.device_name == "test-device"
@@ -126,7 +126,7 @@ async def test_collect_all_async_multiple_devices():
     devices = [_make_device(f"dev-{i}", f"10.0.0.{i}") for i in range(4)]
     mock_mod = _make_mock_ssh()
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         results = await collect_all_async(devices, max_workers=4)
 
     assert len(results) == 4
@@ -160,7 +160,7 @@ async def test_collect_all_async_timeout():
     mock_mod = MagicMock()
     mock_mod.connect = _connect_cm
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         results = await collect_all_async([device], max_workers=1, timeout=0.1)
 
     assert len(results) == 1
@@ -198,7 +198,7 @@ async def test_collect_all_async_mixed_results():
     mock_mod = MagicMock()
     mock_mod.connect = _connect_cm
 
-    with patch("net_audit.collector_async.asyncssh", mock_mod):
+    with patch("audnet.collector_async.asyncssh", mock_mod):
         results = await collect_all_async(devices, max_workers=2)
 
     assert len(results) == 2

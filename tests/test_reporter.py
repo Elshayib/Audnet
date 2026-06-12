@@ -1,7 +1,7 @@
 import pytest
-from net_audit.reporter import render_markdown, render_html
-from net_audit.exceptions import ReportError
-from net_audit.models import AuditReport, ComplianceResult
+from audnet.reporter import render_markdown, render_html
+from audnet.exceptions import ReportError
+from audnet.models import AuditReport, ComplianceResult
 
 
 def _make_report(name, overall, checks):
@@ -71,7 +71,7 @@ class TestReportErrorHandling:
 
     def test_missing_template_raises_report_error(self, tmp_path, monkeypatch):
         """If a template file is missing, render should raise ReportError."""
-        import net_audit.reporter as reporter_mod
+        import audnet.reporter as reporter_mod
 
         # Point the template package at an empty dir so templates are missing
         monkeypatch.setattr(reporter_mod, "_TEMPLATE_PACKAGE", tmp_path)
@@ -79,7 +79,7 @@ class TestReportErrorHandling:
         reporter_mod._md_source = None
         reporter_mod._html_source = None
 
-        from net_audit.models import AuditReport, ComplianceResult
+        from audnet.models import AuditReport, ComplianceResult
 
         report = AuditReport(
             device_name="rtr01",
@@ -95,7 +95,7 @@ class TestReportErrorHandling:
 
     def test_lazy_load_does_not_crash_on_import(self):
         """Importing reporter should not crash even if templates are missing."""
-        import net_audit.reporter as reporter_mod
+        import audnet.reporter as reporter_mod
 
         # If we got here without error, lazy loading works
         assert reporter_mod._md_source is None

@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 
-from net_audit.collector import collect_all
-from net_audit.compliance import run_checks
-from net_audit.config import load_inventory, load_baseline
-from net_audit.models import (
+from audnet.collector import collect_all
+from audnet.compliance import run_checks
+from audnet.config import load_inventory, load_baseline
+from audnet.models import (
     AuditReport,
     DeviceSnapshot,
     ParsedInterfaces,
     ParsedVersion,
     ParsedConfig,
 )
-from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.reporter import render_markdown, render_html
+from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.reporter import render_markdown, render_html
 
 
 def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw: str):
@@ -27,7 +27,7 @@ def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw:
 
 
 class TestFullPipeline:
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_end_to_end_compliant_device(self, mock_cls, tmp_path):
         """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device."""
         mock_conn = MagicMock()
@@ -117,7 +117,7 @@ class TestFullPipeline:
         assert "core-rtr-01" in html
         assert "<html" in html
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_end_to_end_noncompliant_device(self, mock_cls, tmp_path):
         """Full pipeline: device with SSHv1, bad VLAN, rogue NTP -- all checks fail."""
         mock_conn = MagicMock()
@@ -191,7 +191,7 @@ class TestFullPipeline:
         assert "8.8.8.8" in fail_details
         assert "192.168.99.99" in fail_details
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_end_to_end_partial_compliance(self, mock_cls, tmp_path):
         """Device passes SSH and VLAN but fails NTP."""
         mock_conn = MagicMock()

@@ -1,4 +1,4 @@
-"""CLI entry point for net-audit."""
+"""CLI entry point for audnet."""
 
 import json
 import logging
@@ -10,19 +10,19 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from net_audit import __version__
-from net_audit.collector import collect_all
-from net_audit.compliance import run_checks
-from net_audit.config import load_inventory, load_baseline
-from net_audit.models import AuditReport
-from net_audit.reporter import render_markdown, render_html
+from audnet import __version__
+from audnet.collector import collect_all
+from audnet.compliance import run_checks
+from audnet.config import load_inventory, load_baseline
+from audnet.models import AuditReport
+from audnet.reporter import render_markdown, render_html
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
 
 app = typer.Typer(help="Network Security & Compliance State Auditor")
 console = Console()
-logger = structlog.get_logger("net_audit")
+logger = structlog.get_logger("audnet")
 
 _SECRET_KEYS = frozenset({"password", "key_file", "secret", "passwd", "token"})
 
@@ -107,7 +107,7 @@ def audit(
     Supports device/check filters, JSON output, dry-run mode, and strict secret handling for CI/automation.
     """
     _setup_logging(verbose)
-    console.print(f"[bold blue]net-audit v{__version__} — Starting audit...[/bold blue]")
+    console.print(f"[bold blue]audnet v{__version__} — Starting audit...[/bold blue]")
 
     _, devices = load_inventory(inventory, strict=strict)
     baseline_data = load_baseline(baseline)
@@ -147,7 +147,7 @@ def audit(
 
         global _collect_all_async
         if _collect_all_async is None:
-            from net_audit.collector_async import collect_all_async
+            from audnet.collector_async import collect_all_async
 
             _collect_all_async = collect_all_async
         snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers))
@@ -214,8 +214,8 @@ def audit(
 
 @app.command()
 def version() -> None:
-    """Show the net-audit version."""
-    console.print(f"net-audit {__version__}")
+    """Show the audnet version."""
+    console.print(f"audnet {__version__}")
 
 
 if __name__ == "__main__":

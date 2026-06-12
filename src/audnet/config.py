@@ -11,8 +11,8 @@ import yaml
 
 from pydantic import ValidationError
 
-from net_audit.exceptions import ConfigError
-from net_audit.models import Device, SecurityBaseline
+from audnet.exceptions import ConfigError
+from audnet.models import Device, SecurityBaseline
 
 logger = logging.getLogger(__name__)
 

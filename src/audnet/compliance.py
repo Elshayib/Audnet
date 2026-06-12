@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from net_audit.models import ComplianceResult, DeviceSnapshot
+from audnet.models import ComplianceResult, DeviceSnapshot
 
 logger = logging.getLogger(__name__)
 

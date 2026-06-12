@@ -5,8 +5,8 @@ from unittest.mock import patch, MagicMock
 
 from typer.testing import CliRunner
 
-from net_audit.cli import app
-from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+from audnet.cli import app
+from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
 
 runner = CliRunner()
@@ -47,13 +47,13 @@ class TestCliVersion:
     def test_version_command(self):
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
-        assert "net-audit" in result.output
+        assert "audnet" in result.output
 
 
 class TestCliAudit:
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_pass(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -73,9 +73,9 @@ class TestCliAudit:
         assert "PASS" in result.output
         assert Path(f"{out}.md").exists()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_fail(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -94,9 +94,9 @@ class TestCliAudit:
         assert result.exit_code == 1, f"Output: {result.output}"
         assert "FAIL" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_collection_error(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -123,9 +123,9 @@ class TestCliAudit:
         assert "ERROR" in result.output
         assert "Connection timed out" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_html_only(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -156,9 +156,9 @@ class TestCliAudit:
         assert Path(f"{out}.html").exists()
         assert not Path(f"{out}.md").exists()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_multiple_devices(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -184,9 +184,9 @@ class TestCliAudit:
         assert "rtr01" in result.output
         assert "sw01" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_verbose_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
@@ -214,9 +214,9 @@ class TestCliAudit:
         )
         assert result.exit_code == 0, f"Output: {result.output}"
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device filters to a single device by name."""
         mock_inv.return_value = (
@@ -254,9 +254,9 @@ class TestCliAudit:
         # sw01 should not appear since we filtered to rtr01
         assert "sw01" not in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_device_filter_not_found(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device with nonexistent name prints error and exits."""
         mock_inv.return_value = (
@@ -289,9 +289,9 @@ class TestCliAudit:
         assert result.exit_code == 0
         assert "not found" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--check filters results to specified check names."""
         mock_inv.return_value = (
@@ -325,9 +325,9 @@ class TestCliAudit:
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "PASS" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_json_output(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--json outputs a JSON summary to stdout."""
         mock_inv.return_value = (
@@ -367,9 +367,9 @@ class TestCliAudit:
         assert parsed[0]["device_name"] == "rtr01"
         assert parsed[0]["overall_pass"] is True
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_check_filter_invalid(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--check with unknown check name prints a warning."""
         mock_inv.return_value = (
@@ -402,9 +402,9 @@ class TestCliAudit:
         assert "nonexistent_check" in result.output
         assert "unknown check" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_audit_check_filter_comma_separated(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--check with comma-separated values works correctly."""
         mock_inv.return_value = (
@@ -442,9 +442,9 @@ class TestCliAudit:
 class TestCliDryRun:
     """Tests for --dry-run mode."""
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_no_ssh_connections(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--dry-run does not call collect_all (no SSH connections)."""
         mock_inv.return_value = (
@@ -473,9 +473,9 @@ class TestCliDryRun:
         assert result.exit_code == 0, f"Output: {result.output}"
         mock_collect.assert_not_called()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_shows_devices_and_checks(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--dry-run lists devices and checks that would be audited."""
         mock_inv.return_value = (
@@ -515,9 +515,9 @@ class TestCliDryRun:
         assert "inactive_ports" in result.output
         assert "Dry run complete" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_with_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--dry-run with --check shows filtered checks."""
         mock_inv.return_value = (
@@ -552,9 +552,9 @@ class TestCliDryRun:
         assert "DRY RUN" in result.output
         mock_collect.assert_not_called()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_with_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--dry-run with --device shows only the filtered device."""
         dev1 = MagicMock(host="10.0.0.1", username="admin", password="x")
@@ -588,9 +588,9 @@ class TestCliDryRun:
         assert "rtr01" in result.output
         assert "sw01" not in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_short_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """-n is a valid short flag for --dry-run."""
         mock_inv.return_value = (
@@ -620,9 +620,9 @@ class TestCliDryRun:
         assert "DRY RUN" in result.output
         mock_collect.assert_not_called()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_dry_run_validates_config(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--dry-run validates inventory and baseline loading."""
         mock_inv.return_value = (
@@ -651,9 +651,9 @@ class TestCliDryRun:
         assert result.exit_code == 0
         assert "config and baseline are valid" in result.output
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_strict_flag_passed_to_load_inventory(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--strict is forwarded to load_inventory."""
         mock_inv.return_value = (
@@ -682,9 +682,9 @@ class TestCliDryRun:
         assert result.exit_code == 0, f"Output: {result.output}"
         mock_inv.assert_called_once_with(str(inv), strict=True)
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_device_and_check_filter_combined(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device and --check can be used together."""
         d1 = MagicMock(name="device_rtr01")
@@ -727,9 +727,9 @@ class TestCliDryRun:
         assert len(collected_devices) == 1
         assert collected_devices[0].name == "rtr01"
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_json_output_with_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--json combined with --device produces filtered JSON output."""
         d1 = MagicMock(name="device_rtr01")
@@ -770,9 +770,9 @@ class TestCliDryRun:
         assert len(parsed) == 1
         assert parsed[0]["device_name"] == "rtr01"
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_json_output_with_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--json combined with --check produces filtered JSON output."""
         d1 = MagicMock(name="device_rtr01")
@@ -817,9 +817,9 @@ class TestCliDryRun:
         assert "ssh_v2_only" in check_names
         assert "inactive_ports" not in check_names
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_all_filters_combined(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device, --check, --json, and --dry-run can be combined."""
         d1 = MagicMock(name="device_rtr01")
@@ -861,9 +861,9 @@ class TestCliDryRun:
 class TestCliExitCode:
     """Tests for non-zero exit code on compliance failures."""
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_no_fail_flag_ignores_compliance_failures(
         self, mock_inv, mock_bl, mock_collect, tmp_path
     ):
@@ -899,9 +899,9 @@ class TestCliExitCode:
 class TestCliAsyncMode:
     """Tests for --async flag integration with async collector."""
 
-    @patch("net_audit.cli._collect_all_async")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli._collect_all_async")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_async_flag_calls_async_collector(
         self, mock_inv, mock_bl, mock_collect_async, tmp_path
     ):
@@ -937,10 +937,10 @@ class TestCliAsyncMode:
         assert result.exit_code == 0, f"Output: {result.output}"
         mock_collect_async.assert_called_once()
 
-    @patch("net_audit.cli.collect_all")
-    @patch("net_audit.cli._collect_all_async")
-    @patch("net_audit.cli.load_baseline")
-    @patch("net_audit.cli.load_inventory")
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli._collect_all_async")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
     def test_default_uses_sync_collector(
         self, mock_inv, mock_bl, mock_collect_async, mock_collect_sync, tmp_path
     ):

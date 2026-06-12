@@ -1,4 +1,4 @@
-"""Pydantic data models for net-audit."""
+"""Pydantic data models for audnet."""
 
 import ipaddress
 

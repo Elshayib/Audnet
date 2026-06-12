@@ -33,12 +33,12 @@ devices:
   - name: core-switch-01
     host: 10.0.0.1
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 ```
 
 ```bash
-export NET_AUDIT_PASSWORD="your-secret-password"
-net-audit audit
+export AUDNET_PASSWORD="your-secret-password"
+audnet audit
 ```
 
 ### Recommended: External Secret Stores (Production)
@@ -48,33 +48,33 @@ For production deployments, use a dedicated secret manager:
 **HashiCorp Vault:**
 ```bash
 # Pull password from Vault before running
-export NET_AUDIT_PASSWORD=$(vault kv get -field=password secret/net-audit)
-net-audit audit
+export AUDNET_PASSWORD=$(vault kv get -field=password secret/audnet)
+audnet audit
 ```
 
 **AWS Secrets Manager:**
 ```bash
-export NET_AUDIT_PASSWORD=$(aws secretsmanager get-secret-value \
-  --secret-id net-audit/password \
+export AUDNET_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id audnet/password \
   --query SecretString --output text)
-net-audit audit
+audnet audit
 ```
 
 **1Password CLI:**
 ```bash
-export NET_AUDIT_PASSWORD=$(op read "op://Private/net-audit/password")
-net-audit audit
+export AUDNET_PASSWORD=$(op read "op://Private/audnet/password")
+audnet audit
 ```
 
 **Python keyring (local development):**
 ```python
 import keyring
-keyring.set_password("net-audit", "core-switch-01", "secret-password")
+keyring.set_password("audnet", "core-switch-01", "secret-password")
 ```
 ```bash
 # In inventory, reference via env var that keyring populates
-export NET_AUDIT_PASSWORD=$(python -c "import keyring; print(keyring.get_password('net-audit', 'core-switch-01'))")
-net-audit audit
+export AUDNET_PASSWORD=$(python -c "import keyring; print(keyring.get_password('audnet', 'core-switch-01'))")
+audnet audit
 ```
 
 ### Strict Mode
@@ -82,7 +82,7 @@ net-audit audit
 Use `--strict` in CI/CD pipelines to enforce that no plaintext passwords exist in inventory files:
 
 ```bash
-net-audit audit --strict
+audnet audit --strict
 ```
 
 This causes the audit to fail with a `ConfigError` if any device has a password that is not a `${ENV_VAR}` reference.
@@ -100,7 +100,7 @@ devices:
     key_file: ~/.ssh/id_ed25519
 ```
 
-### What net-audit Does
+### What audnet Does
 
 - Passwords are stored as `SecretStr` (Pydantic) — never rendered in logs or output
 - Log redaction filters (`_redact_secrets`) mask password values in all log output

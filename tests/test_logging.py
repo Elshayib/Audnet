@@ -6,7 +6,7 @@ from io import StringIO
 
 import structlog
 
-from net_audit.cli import _redact_secrets, _setup_logging, _SECRET_KEYS
+from audnet.cli import _redact_secrets, _setup_logging, _SECRET_KEYS
 
 
 class TestRedactSecrets:
@@ -82,7 +82,7 @@ class TestSetupLogging:
     def test_structlog_is_configured(self) -> None:
         self._reset_logging()
         _setup_logging(verbose=False)
-        logger = structlog.get_logger("net_audit.test")
+        logger = structlog.get_logger("audnet.test")
         assert logger is not None
 
     def test_json_output_in_non_verbose(self) -> None:
@@ -94,7 +94,7 @@ class TestSetupLogging:
         root = logging.getLogger()
         root.addHandler(handler)
 
-        logger = structlog.get_logger("net_audit.json_test")
+        logger = structlog.get_logger("audnet.json_test")
         logger.info("test_event", host="10.0.0.1", password="supersecret")
 
         root.removeHandler(handler)

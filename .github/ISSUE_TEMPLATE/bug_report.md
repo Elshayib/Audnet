@@ -9,7 +9,7 @@ A clear and concise description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
-1. Run `net-audit ...`
+1. Run `audnet ...`
 2. ...
 3. See error
 
@@ -22,7 +22,7 @@ If applicable, add screenshots.
 **Environment:**
 - OS: [e.g. Ubuntu 24.04]
 - Python: [e.g. 3.12]
-- net-audit: [e.g. v0.1.0]
+- audnet: [e.g. v0.1.0]
 
 **Additional context**
 Add any other context about the problem here.
