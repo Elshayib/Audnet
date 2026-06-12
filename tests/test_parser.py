@@ -30,6 +30,26 @@ class TestParseVersion:
         assert "15.2" in result.get("version", "")
         assert "5 days" in result.get("uptime", "")
 
+    def test_parses_serial(self):
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "router uptime is 5 days, 3 hours, 22 minutes\n\n"
+            "System Serial Number               : 98DVJUONW1X\n"
+        )
+        result = parse_version(raw)
+        assert result.get("serial") == "98DVJUONW1X"
+
+    def test_serial_missing(self):
+        """Output without serial number produces empty string."""
+        raw = (
+            "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+            "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+            "router uptime is 5 days, 3 hours, 22 minutes"
+        )
+        result = parse_version(raw)
+        assert result.get("serial", "") == ""
+
     def test_unknown(self):
         assert parse_version("") == {}
 
