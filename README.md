@@ -65,13 +65,14 @@ Every layer is independently testable with mocked responses — no real network 
 
 ### Quick install (end users)
 
-If you just want to use net-audit:
-
 ```bash
-# Using uv (recommended)
-uv tool install git+https://github.com/islam666/net-audit.git
+# From PyPI (recommended for production)
+pip install net-audit
 
-# Using pip
+# Or with uv
+uv tool install net-audit
+
+# From source (latest development version)
 pip install git+https://github.com/islam666/net-audit.git
 
 # Verify
@@ -105,7 +106,7 @@ pre-commit install
 
 # 5. Verify installation
 python -c "import net_audit; print(net_audit.__version__)"
-# Expected: 0.1.0
+# Expected: 0.1.1
 
 # 6. Run the test suite
 pytest tests/ -v
@@ -297,11 +298,14 @@ net-audit audit --dry-run --device core-router-01 --check ssh_v2_only
 
 #### Strict mode for CI
 
-Fail immediately if any device has a plaintext password (no `${ENV_VAR}` reference):
+Fail immediately if any device has a plaintext password (no `${ENV_VAR}` reference).
+Checks `password`, `secret`, `passwd`, and `token` fields:
 
 ```bash
 net-audit audit --strict
 ```
+
+Without `--strict`, a warning is logged instead of failing.
 
 #### Verbose debug logging
 
@@ -313,6 +317,15 @@ net-audit audit -v --dry-run
 
 ```bash
 net-audit audit --device core-router-01 --check ssh_v2_only --json --strict
+```
+
+#### Allow compliance failures without non-zero exit
+
+By default, net-audit exits with code 1 when compliance checks fail. Use `--no-fail`
+to always exit with code 0 (useful when you want the report but don't want CI to break):
+
+```bash
+net-audit audit --no-fail
 ```
 
 #### Show version
@@ -347,9 +360,12 @@ Summary: 1 passed, 1 with issues.
 | `--check` | (all) | Filter to specific checks (repeatable; comma-separated) |
 | `--json` | `false` | Output JSON summary to stdout |
 | `--dry-run`, `-n` | `false` | Validate config without connecting to devices |
-| `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
-| `-v`, `--verbose` | `false` | Enable debug logging with console output |
-| `--version` | — | Show net-audit version and exit |
+|| `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
+|| `--no-fail` | `false` | Exit with code 0 even when compliance checks fail |
+|| `-v`, `--verbose` | `false` | Enable debug logging with console output |
+|| `--version` | — | Show net-audit version and exit |
+|| `--async` | `false` | Use asyncio collector (asyncssh) — recommended for >20 devices |
+|| `--connect-timeout` | `10` | SSH connection timeout in seconds |
 
 ### Dry-run mode
 

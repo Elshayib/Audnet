@@ -37,3 +37,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--strict` mode enforces env-var-only passwords in CI/CD pipelines
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-06-12
+
+### Added
+
+- `--async` flag for asyncio-based collector (asyncssh) — recommended for >20 devices (#88)
+- `--no-fail` flag to exit with code 0 even when compliance checks fail (default: exit code 1 on failures) (#78)
+- Hostname parsing from `show version` output (#73)
+- Serial number parsing from `show version` output (#72)
+- PyPI publish workflow — automated build and publish to PyPI on `v*` tags via Trusted Publishing (OIDC) (#90)
+- PyPI version and Python version badges in README (#90)
+
+### Fixed
+
+- Strict mode now also checks `secret`, `passwd`, and `token` fields for plaintext passwords (#76)
+- `CheckConfig` model missing `vendor_patterns` field — added with proper validation (#85)
+- SSH host key verification not configurable in async collector (#84)
+- Invalid device entries in inventory no longer abort entire load — skipped with warning (#83)
+- Device order not preserved in `collect_all` results — now maintains insertion order (#82)
+- Missing vendor TextFSM templates silently returned empty results — now raises `ParseError` (#81)
+- `connect_timeout` passed as string instead of int in async collector (#79)
+- Report templates not lazy-loaded — now loaded on demand with proper error handling (#77)
+- Extra TextFSM fields in `ParsedVersion` caused validation errors — now ignored (#75)
+- Baseline `check_name` not propagated to `ComplianceResult` — now correctly set (#74)
+- `_check_no_open_ports` backward walk logic replaced with forward-scan interface tracking for correctness (#87)
+- Magic slot indices in parser replaced with `Slot` enum for type safety (#86)
+
+### Documentation
+
+- Added quick-install section to README (#53)
+- Added quick start guide (#80)
+- Added GitHub Release badge to README (#51)
+- Updated CONTRIBUTING.md release process to reflect automated PyPI publish (#90)
