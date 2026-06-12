@@ -60,14 +60,18 @@ def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], lis
     # ${VAR} references are not mistaken for resolved plaintext values.
     defaults = data.get("defaults", {})
     plaintext_devices: list[str] = []
+    _SENSITIVE_FIELDS = ("password", "secret", "passwd", "token")
     for entry in data.get("devices", []):
         merged = {**defaults, **entry}
-        pwd = merged.get("password", "")
-        if isinstance(pwd, str) and _is_plaintext(pwd):
-            plaintext_devices.append(merged.get("name", merged.get("host", "unknown")))
+        for field in _SENSITIVE_FIELDS:
+            val = merged.get(field, "")
+            if isinstance(val, str) and _is_plaintext(val):
+                plaintext_devices.append(
+                    f"{merged.get('name', merged.get('host', 'unknown'))} ({field})"
+                )
     if plaintext_devices:
         msg = (
-            f"Plaintext passwords found for device(s): {', '.join(plaintext_devices)}. "
+            f"Plaintext secrets found for device(s): {', '.join(plaintext_devices)}. "
             "Use ${ENV_VAR} references or an external secret store in production."
         )
         if strict:

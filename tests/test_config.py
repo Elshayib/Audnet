@@ -121,7 +121,7 @@ devices:
     username: admin
     password: supersecret
 """)
-        with pytest.raises(ConfigError, match="Plaintext passwords"):
+        with pytest.raises(ConfigError, match="Plaintext secrets"):
             load_inventory(str(inv), strict=True)
 
     def test_strict_passes_with_env_var_password(self, tmp_path):
@@ -152,7 +152,7 @@ devices:
         with caplog.at_level("WARNING"):
             _, devices = load_inventory(str(inv), strict=False)
         assert len(devices) == 1
-        assert "Plaintext passwords" in caplog.text
+        assert "Plaintext secrets" in caplog.text
 
     def test_strict_multiple_devices_plaintext(self, tmp_path):
         inv = tmp_path / "devices.yaml"
@@ -167,7 +167,7 @@ devices:
     username: admin
     password: secret2
 """)
-        with pytest.raises(ConfigError, match="rtr01, rtr02"):
+        with pytest.raises(ConfigError, match="rtr01 \\(password\\), rtr02 \\(password\\)"):
             load_inventory(str(inv), strict=True)
 
     def test_strict_mixed_plaintext_and_env_var(self, tmp_path):
@@ -202,3 +202,49 @@ devices:
 """)
         _, devices = load_inventory(str(inv), strict=True)
         assert len(devices) == 1
+
+
+class TestStrictModeSecretField:
+    """Strict mode checks password, secret, passwd, and token fields."""
+
+    def test_strict_raises_on_plaintext_secret(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: ${DEVICE_PASSWORD}
+    secret: mySuperSecretEnablePass
+""")
+        with pytest.raises(ConfigError, match="rtr01 \\(secret\\)"):
+            load_inventory(str(inv), strict=True)
+
+    def test_strict_raises_on_plaintext_passwd(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: ${DEVICE_PASSWORD}
+    passwd: some_plaintext_passwd
+""")
+        with pytest.raises(ConfigError, match="rtr01 \\(passwd\\)"):
+            load_inventory(str(inv), strict=True)
+
+    def test_non_strict_warns_on_plaintext_secret(self, tmp_path, caplog):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: ${DEVICE_PASSWORD}
+    secret: mySuperSecretEnablePass
+""")
+        with caplog.at_level("WARNING"):
+            _, devices = load_inventory(str(inv), strict=False)
+        assert len(devices) == 1
+        assert "Plaintext secrets" in caplog.text
+        assert "rtr01 (secret)" in caplog.text
