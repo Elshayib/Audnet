@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structlog processor redacts sensitive keys (`password`, `key_file`, `secret`, `passwd`, `token`)
 - `--strict` mode enforces env-var-only passwords in CI/CD pipelines
 
+## [0.1.2] - 2026-06-12
+
+### Changed
+
+- Renamed package from `net-audit` / `net_audit` to `audnet` everywhere: Python package, CLI entry point, PyPI project name, env vars (`AUDNET_PASSWORD`), docs, badges (#108, #109)
+- Renamed GitHub repository from `islam666/net-audit` to `islam666/Audnet`
+
+### Fixed
+
+- CI badge URL updated to match renamed repo
+- Release badge URL updated to match renamed repo
+- Labeler config paths updated from `src/net_audit/` to `src/audnet/`
+- Sample SSH key filename in inventory updated to `audnet_id_ed25519`
+
 ## [Unreleased]
 
 ## [0.1.1] - 2026-06-12
