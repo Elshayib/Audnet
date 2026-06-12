@@ -98,4 +98,4 @@ jobs:
         run: uv run pytest tests/ -v --tb=short
 
       - name: Coverage report
-        run: uv run pytest tests/ --cov=net_audit --cov-report=term-missing --cov-fail-under=90
+        run: uv run pytest tests/ --cov=audnet --cov-report=term-missing --cov-fail-under=90
