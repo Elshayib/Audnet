@@ -431,6 +431,63 @@ class TestOpenPortsRealWorldConfig:
         assert "Gi0/1" not in r.detail
         assert "Gi0/3" not in r.detail
 
+    def test_long_interface_block_over_10_lines(self):
+        """Interface block with >10 lines before switchport access vlan still attributed correctly."""
+        snap = _snap(
+            "sw01",
+            [
+                "interface GigabitEthernet0/1",
+                " description User Access Port",
+                " ip access-group ACL_USER_IN in",
+                " ip access-group ACL_USER_OUT out",
+                " ip helper-address 10.0.0.1",
+                " ip helper-address 10.0.0.2",
+                " spanning-tree portfast",
+                " spanning-tree bpduguard enable",
+                " storm-control broadcast level 20.00",
+                " storm-control multicast level 20.00",
+                " switchport access vlan 999",
+                " switchport mode access",
+            ],
+        )
+        bl = {
+            "checks": {
+                "inactive_ports": {
+                    "severity": "high",
+                    "rule": "no_open_ports",
+                    "allowed_vlans": [10, 20],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "inactive_ports"][0]
+        assert r.passed is False
+        assert "GigabitEthernet0/1" in r.detail
+        assert "999" in r.detail
+
+    def test_no_interface_line_before_vlan(self):
+        """VLAN line with no preceding interface line reports 'unknown'."""
+        snap = _snap(
+            "sw01",
+            [
+                "hostname sw01",
+                " switchport access vlan 999",
+            ],
+        )
+        bl = {
+            "checks": {
+                "inactive_ports": {
+                    "severity": "high",
+                    "rule": "no_open_ports",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "inactive_ports"][0]
+        assert r.passed is False
+        assert "unknown" in r.detail
+
 
 class TestNtpCaseInsensitive:
     """NTP check handles mixed-case config lines."""
