@@ -112,6 +112,16 @@ pytest tests/ -v
 
 `uv pip install -e ".[dev]"` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
 
+### Quick start
+
+```bash
+# Dry run against the sample inventory — no SSH connections made
+net-audit audit --dry-run
+
+# Run a real audit against your devices
+net-audit audit --inventory inventories/devices.yaml --baseline baselines/security_baseline.yaml
+```
+
 ### Configure device inventory
 
 Edit `inventories/devices.yaml` with your network devices:

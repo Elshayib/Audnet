@@ -1,4 +1,5 @@
 defaults:
+  username: admin
   device_type: cisco_ios
   port: 22
   timeout: 30
@@ -6,17 +7,14 @@ defaults:
 devices:
   - name: core-rtr-01
     host: 192.168.1.1
-    username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${CORE_RTR_01_PASSWORD}"
 
   - name: dist-sw-01
     host: 192.168.1.2
-    username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    device_type: cisco_nxos
+    password: "${DIST_SW_01_PASSWORD}"
 
-  # Example: SSH key-based authentication
-  # - name: core-rtr-02
-  #   host: 192.168.1.3
-  #   username: admin
-  #   use_keys: true
-  #   key_file: ~/.ssh/id_ed25519
+  - name: edge-fw-01
+    host: 192.168.1.3
+    use_keys: true
+    key_file: ~/.ssh/net_audit_id_ed25519
