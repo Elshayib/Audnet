@@ -76,13 +76,13 @@ class TestParseConfig:
 
 
 class TestParserErrorPaths:
-    def test_missing_template_returns_empty(self, tmp_path, monkeypatch):
-        """When template file doesn't exist, parse_interfaces returns []."""
+    def test_missing_template_raises_parse_error(self, tmp_path, monkeypatch):
+        """When template file doesn't exist, parse_interfaces raises ParseError."""
         import net_audit.parser as parser_mod
 
         monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", tmp_path / "nonexistent")
-        result = parse_interfaces("some raw output")
-        assert result == []
+        with pytest.raises(ParseError, match="TextFSM template not found"):
+            parse_interfaces("some raw output")
 
     def test_malformed_output_returns_empty(self):
         """When raw output doesn't match template, returns empty list."""

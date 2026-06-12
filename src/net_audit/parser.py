@@ -24,8 +24,9 @@ TEMPLATE_DIR = files("net_audit.textfsm_templates")
 def _apply_template(template_name: str, raw: str) -> list[dict[str, str]]:
     template_path = TEMPLATE_DIR / template_name
     if not template_path.is_file():
-        logger.warning("TextFSM template not found: %s", template_name)
-        return []
+        raise ParseError(
+            f"TextFSM template not found: {template_name!r}. Expected file: {template_path}"
+        )
     try:
         with template_path.open() as f:
             template = textfsm.TextFSM(f)
