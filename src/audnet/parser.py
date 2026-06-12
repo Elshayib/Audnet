@@ -13,12 +13,12 @@ from importlib.resources import files
 
 import textfsm
 
-from net_audit.exceptions import ParseError
-from net_audit.vendor_registry import Slot, get_template_name
+from audnet.exceptions import ParseError
+from audnet.vendor_registry import Slot, get_template_name
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_DIR = files("net_audit.textfsm_templates")
+TEMPLATE_DIR = files("audnet.textfsm_templates")
 
 
 def _apply_template(template_name: str, raw: str) -> list[dict[str, str]]:

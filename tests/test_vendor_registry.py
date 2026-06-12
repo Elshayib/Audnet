@@ -1,7 +1,7 @@
 """Tests for the vendor registry and multi-vendor dispatch system."""
 
 import pytest
-from net_audit.vendor_registry import (
+from audnet.vendor_registry import (
     Slot,
     get_commands,
     get_template_name,

@@ -20,10 +20,10 @@ from netmiko.exceptions import (
 from paramiko.ssh_exception import SSHException
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
-from net_audit.exceptions import ParseError
-from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
-from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.vendor_registry import Slot, get_commands
+from audnet.exceptions import ParseError
+from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
 

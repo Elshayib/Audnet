@@ -1,8 +1,8 @@
-"""Custom exceptions for net-audit."""
+"""Custom exceptions for audnet."""
 
 
 class NetAuditError(Exception):
-    """Base exception for all net-audit errors."""
+    """Base exception for all audnet errors."""
 
 
 class ConfigError(NetAuditError):

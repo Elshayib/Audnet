@@ -1,6 +1,6 @@
 """Tests for custom exceptions."""
 
-from net_audit.exceptions import (
+from audnet.exceptions import (
     NetAuditError,
     ConfigError,
     CollectionError,

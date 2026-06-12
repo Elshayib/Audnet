@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 
-from net_audit.collector import collect_device, collect_all
-from net_audit.models import Device
+from audnet.collector import collect_device, collect_all
+from audnet.models import Device
 
 
 def _make_device(name="rtr01", host="10.0.0.1"):
@@ -9,7 +9,7 @@ def _make_device(name="rtr01", host="10.0.0.1"):
 
 
 class TestCollectDevice:
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_successful_collection(self, mock_cls):
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
@@ -26,7 +26,7 @@ class TestCollectDevice:
         assert snap.device_name == "rtr01"
         assert snap.collection_error is None
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_parser_wired_version_and_config(self, mock_cls):
         """Collector must parse version and config through TextFSM/parser."""
         mock_conn = MagicMock()
@@ -62,7 +62,7 @@ class TestCollectDevice:
         assert len(snap.interfaces.interfaces) == 1
         assert snap.interfaces.interfaces[0]["interface"] == "GigabitEthernet0/0"
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_connection_failure(self, mock_cls):
         from netmiko.exceptions import NetmikoTimeoutException
 
@@ -72,7 +72,7 @@ class TestCollectDevice:
         assert snap.collection_error is not None
         assert "Connection timed out" in snap.collection_error
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_ssh_key_auth_passed_to_connect_handler(self, mock_cls):
         """When use_keys=True, ConnectHandler receives use_keys and key_file."""
         mock_conn = MagicMock()
@@ -99,7 +99,7 @@ class TestCollectDevice:
         assert call_kwargs["use_keys"] is True
         assert call_kwargs["key_file"] == "/home/user/.ssh/id_ed25519"
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_ssh_key_auth_no_key_file(self, mock_cls):
         """When use_keys=True but no key_file, only use_keys is passed."""
         mock_conn = MagicMock()
@@ -125,7 +125,7 @@ class TestCollectDevice:
         assert call_kwargs["use_keys"] is True
         assert "key_file" not in call_kwargs
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_password_auth_no_key_params(self, mock_cls):
         """When use_keys=False (default), no key params are passed."""
         mock_conn = MagicMock()
@@ -147,9 +147,9 @@ class TestCollectDevice:
 
 
 class TestCollectAll:
-    @patch("net_audit.collector.collect_device")
+    @patch("audnet.collector.collect_device")
     def test_collects_all_devices(self, mock_collect):
-        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
         mock_collect.return_value = DeviceSnapshot(
             device_name="rtr01",
@@ -165,7 +165,7 @@ class TestCollectAll:
 class TestRetry:
     """Tests for tenacity retry logic on transient SSH errors."""
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_timeout_then_succeeds(self, mock_cls) -> None:
         """Transient timeout on first two attempts, success on third."""
         from netmiko.exceptions import NetmikoTimeoutException
@@ -199,7 +199,7 @@ class TestRetry:
         assert snap.collection_error is None
         assert call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_exhausted_returns_error(self, mock_cls) -> None:
         """All 3 attempts fail with transient error → collection_error set."""
         from netmiko.exceptions import NetmikoTimeoutException
@@ -210,7 +210,7 @@ class TestRetry:
         assert snap.collection_error is not None
         assert "connection timed out" in snap.collection_error
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_no_retry_on_auth_failure(self, mock_cls) -> None:
         """Authentication failure is not retried (not in retry_if_exception_type)."""
         from netmiko.exceptions import NetmikoAuthenticationException
@@ -223,7 +223,7 @@ class TestRetry:
         # Should have been called exactly once (no retries)
         assert mock_cls.call_count == 1
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_os_error(self, mock_cls) -> None:
         """OSError is retried as it's in the retry exception types."""
         mock_conn = MagicMock()
@@ -255,8 +255,8 @@ class TestRetry:
 class TestVendorCommands:
     """Tests for multi-vendor command dispatch via vendor registry."""
 
-    @patch("net_audit.collector.get_commands")
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.get_commands")
+    @patch("audnet.collector.ConnectHandler")
     def test_known_device_type_uses_vendor_commands(self, mock_cls, mock_get_cmds):
         """Known device_type (cisco_ios) uses vendor registry commands."""
         mock_get_cmds.return_value = [
@@ -283,8 +283,8 @@ class TestVendorCommands:
         assert "show running-config" in cmds
         mock_get_cmds.assert_called_once_with("cisco_ios")
 
-    @patch("net_audit.collector.get_commands")
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.get_commands")
+    @patch("audnet.collector.ConnectHandler")
     def test_arista_eos_uses_vendor_commands(self, mock_cls, mock_get_cmds):
         """arista_eos device_type uses arista_eos commands from registry."""
         mock_get_cmds.return_value = [
@@ -315,8 +315,8 @@ class TestVendorCommands:
         assert "TextFSM template not found" in snap.collection_error
         mock_get_cmds.assert_called_once_with("arista_eos")
 
-    @patch("net_audit.collector.get_commands")
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.get_commands")
+    @patch("audnet.collector.ConnectHandler")
     def test_unknown_device_type_falls_back_to_cisco_ios(self, mock_cls, mock_get_cmds):
         """Unknown device_type falls back to cisco_ios commands via registry."""
         mock_get_cmds.return_value = [
@@ -350,7 +350,7 @@ class TestVendorCommands:
 class TestRetryBroadened:
     """Tests for broadened retry coverage on transient Netmiko exceptions."""
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_connection_exception(self, mock_cls) -> None:
         """ConnectionException is retried as it's in _RETRYABLE_EXCEPTIONS."""
         from netmiko.exceptions import ConnectionException
@@ -380,7 +380,7 @@ class TestRetryBroadened:
         assert snap.collection_error is None
         assert call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_read_exception(self, mock_cls) -> None:
         """ReadException is retried as it's in _RETRYABLE_EXCEPTIONS."""
         from netmiko.exceptions import ReadException
@@ -410,7 +410,7 @@ class TestRetryBroadened:
         assert snap.collection_error is None
         assert call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_ssh_exception(self, mock_cls) -> None:
         """SSHException is retried as it's in _RETRYABLE_EXCEPTIONS."""
         from paramiko.ssh_exception import SSHException
@@ -440,7 +440,7 @@ class TestRetryBroadened:
         assert snap.collection_error is None
         assert call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retries_on_parsing_exception(self, mock_cls) -> None:
         """NetmikoParsingException is retried as it's in _RETRYABLE_EXCEPTIONS."""
         from netmiko.exceptions import NetmikoParsingException
@@ -470,7 +470,7 @@ class TestRetryBroadened:
         assert snap.collection_error is None
         assert call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_no_retry_on_config_invalid_exception(self, mock_cls) -> None:
         """ConfigInvalidException is NOT retried (not in _RETRYABLE_EXCEPTIONS)."""
         from netmiko.exceptions import ConfigInvalidException
@@ -487,10 +487,10 @@ class TestRetryBroadened:
 class TestCollectAllTimeout:
     """Tests for collect_all per-device timeout."""
 
-    @patch("net_audit.collector.collect_device")
+    @patch("audnet.collector.collect_device")
     def test_collect_all_with_timeout(self, mock_collect):
         """collect_all passes timeout to future.result()."""
-        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
         mock_collect.return_value = DeviceSnapshot(
             device_name="rtr01",
@@ -503,12 +503,12 @@ class TestCollectAllTimeout:
         assert len(results) == 1
         assert results[0].collection_error is None
 
-    @patch("net_audit.collector.collect_device")
+    @patch("audnet.collector.collect_device")
     def test_collect_all_timeout_returns_error_snapshot(self, mock_collect):
         """When a device times out, an error snapshot is returned."""
         import time
 
-        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
         # Use a real function that sleeps, executed via the thread pool
         _sleeping = True
@@ -531,12 +531,12 @@ class TestCollectAllTimeout:
         assert "timed out" in results[0].collection_error
         assert "0.5s" in results[0].collection_error
 
-    @patch("net_audit.collector.collect_device")
+    @patch("audnet.collector.collect_device")
     def test_collect_all_timeout_mixed_results(self, mock_collect):
         """Timeout on one device, success on another."""
         import time
 
-        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
         def mixed_collect(device):
             if device.name == "slow":
@@ -562,8 +562,8 @@ class TestCollectAllTimeout:
         """collect_all without timeout works as before (no timeout parameter)."""
         from unittest.mock import patch
 
-        with patch("net_audit.collector.collect_device") as mock_collect:
-            from net_audit.models import (
+        with patch("audnet.collector.collect_device") as mock_collect:
+            from audnet.models import (
                 DeviceSnapshot,
                 ParsedInterfaces,
                 ParsedVersion,
@@ -584,7 +584,7 @@ class TestCollectAllTimeout:
 class TestCollectorEdgeCases:
     """Edge-case tests for collector retry and error handling."""
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retry_exhausted_connection_exception(self, mock_cls):
         """ConnectionException is retried 3 times then returns error snapshot."""
         from netmiko.exceptions import ConnectionException
@@ -596,7 +596,7 @@ class TestCollectorEdgeCases:
         assert "Connection refused" in result.collection_error
         assert mock_cls.call_count == 3
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retry_exhausted_read_exception(self, mock_cls):
         """ReadException is retried 3 times then returns error snapshot."""
         from netmiko.exceptions import ReadException
@@ -608,7 +608,7 @@ class TestCollectorEdgeCases:
         assert "Read timeout" in result.collection_error
         assert mock_cls.call_count == 3
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retry_exhausted_parsing_exception(self, mock_cls):
         """NetmikoParsingException is retried 3 times then returns error snapshot."""
         from netmiko.exceptions import NetmikoParsingException
@@ -620,7 +620,7 @@ class TestCollectorEdgeCases:
         assert "Parse error" in result.collection_error
         assert mock_cls.call_count == 3
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_no_retry_on_auth_failure(self, mock_cls):
         """AuthenticationException is NOT retried (not transient)."""
         from netmiko.exceptions import NetmikoAuthenticationException
@@ -633,7 +633,7 @@ class TestCollectorEdgeCases:
         # Should only be called once — no retries
         assert mock_cls.call_count == 1
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_no_retry_on_config_invalid(self, mock_cls):
         """ConfigInvalidException is NOT retried."""
         from netmiko.exceptions import ConfigInvalidException
@@ -645,7 +645,7 @@ class TestCollectorEdgeCases:
         assert "Invalid config" in result.collection_error
         assert mock_cls.call_count == 1
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_retry_then_success(self, mock_cls):
         """Transient error on first attempt, success on retry."""
         from netmiko.exceptions import ReadException
@@ -664,7 +664,7 @@ class TestCollectorEdgeCases:
         assert result.device_name == "rtr01"
         assert mock_cls.call_count == 2
 
-    @patch("net_audit.collector.ConnectHandler")
+    @patch("audnet.collector.ConnectHandler")
     def test_value_error_returns_error_snapshot(self, mock_cls):
         """ValueError during collection returns error snapshot."""
         mock_conn = MagicMock()
@@ -681,10 +681,10 @@ class TestCollectorEdgeCases:
         results = collect_all([], max_workers=2)
         assert results == []
 
-    @patch("net_audit.collector.collect_device")
+    @patch("audnet.collector.collect_device")
     def test_collect_all_mixed_success_and_error(self, mock_collect):
         """collect_all returns both successful and error snapshots."""
-        from net_audit.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 
         mock_collect.side_effect = [
             DeviceSnapshot(

@@ -1,6 +1,6 @@
 import pytest
-from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.exceptions import ParseError
+from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.exceptions import ParseError
 
 
 class TestParseInterfaces:
@@ -78,7 +78,7 @@ class TestParseConfig:
 class TestParserErrorPaths:
     def test_missing_template_raises_parse_error(self, tmp_path, monkeypatch):
         """When template file doesn't exist, parse_interfaces raises ParseError."""
-        import net_audit.parser as parser_mod
+        import audnet.parser as parser_mod
 
         monkeypatch.setattr(parser_mod, "TEMPLATE_DIR", tmp_path / "nonexistent")
         with pytest.raises(ParseError, match="TextFSM template not found"):
@@ -104,7 +104,7 @@ class TestParserErrorPaths:
 
     def test_corrupt_template_raises_parse_error(self, tmp_path, monkeypatch):
         """A corrupt TextFSM template raises ParseError."""
-        import net_audit.parser as parser_mod
+        import audnet.parser as parser_mod
 
         bad_template_dir = tmp_path / "templates"
         bad_template_dir.mkdir()

@@ -1,7 +1,7 @@
 import os
 import pytest
-from net_audit.config import load_inventory, load_baseline, _is_plaintext
-from net_audit.exceptions import ConfigError
+from audnet.config import load_inventory, load_baseline, _is_plaintext
+from audnet.exceptions import ConfigError
 
 
 class TestLoadInventory:
@@ -101,7 +101,7 @@ class TestIsPlaintext:
         assert _is_plaintext("supersecret") is True
 
     def test_env_var_reference_is_not_plaintext(self):
-        assert _is_plaintext("${NET_AUDIT_PASSWORD}") is False
+        assert _is_plaintext("${AUDNET_PASSWORD}") is False
 
     def test_empty_string_is_not_plaintext(self):
         assert _is_plaintext("") is False
@@ -131,14 +131,14 @@ devices:
   - name: rtr01
     host: 10.0.0.1
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 """)
-        os.environ["NET_AUDIT_PASSWORD"] = "resolved"
+        os.environ["AUDNET_PASSWORD"] = "resolved"
         try:
             _, devices = load_inventory(str(inv), strict=True)
             assert len(devices) == 1
         finally:
-            del os.environ["NET_AUDIT_PASSWORD"]
+            del os.environ["AUDNET_PASSWORD"]
 
     def test_non_strict_warns_on_plaintext_password(self, tmp_path, caplog):
         inv = tmp_path / "devices.yaml"
@@ -177,18 +177,18 @@ devices:
   - name: rtr01
     host: 10.0.0.1
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
   - name: rtr02
     host: 10.0.0.2
     username: admin
     password: plaintext_secret
 """)
-        os.environ["NET_AUDIT_PASSWORD"] = "resolved"
+        os.environ["AUDNET_PASSWORD"] = "resolved"
         try:
             with pytest.raises(ConfigError, match="rtr02"):
                 load_inventory(str(inv), strict=True)
         finally:
-            del os.environ["NET_AUDIT_PASSWORD"]
+            del os.environ["AUDNET_PASSWORD"]
 
     def test_strict_no_password_field(self, tmp_path):
         """Devices without a password field should not trigger strict mode."""

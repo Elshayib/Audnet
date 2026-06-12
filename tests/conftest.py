@@ -1,5 +1,5 @@
 import pytest
-from net_audit.models import Device
+from audnet.models import Device
 
 
 @pytest.fixture

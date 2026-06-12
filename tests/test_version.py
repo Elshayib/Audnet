@@ -1,6 +1,6 @@
 """Tests for the version module."""
 
-from net_audit import __version__
+from audnet import __version__
 
 
 class TestVersion:

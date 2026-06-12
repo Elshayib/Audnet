@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "net-audit"
+name = "audnet"
 dynamic = ["version"]
 description = "Network Security & Compliance Auditor — automated SSH baseline checks to detect and prevent configuration drift"
 readme = "README.md"
@@ -45,17 +45,17 @@ dev = [
 ]
 
 [project.scripts]
-net-audit = "net_audit.cli:app"
+audnet = "audnet.cli:app"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/net_audit"]
+packages = ["src/audnet"]
 include = [
-    "src/net_audit/**/*.py",
-    "src/net_audit/templates/**/*",
-    "src/net_audit/textfsm_templates/**/*",
+    "src/audnet/**/*.py",
+    "src/audnet/templates/**/*",
+    "src/audnet/textfsm_templates/**/*",
 ]
 
 [tool.pytest.ini_options]
@@ -89,7 +89,7 @@ module = ["paramiko.ssh_exception"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["src/net_audit"]
+source = ["audnet"]
 branch = true
 
 [tool.coverage.report]

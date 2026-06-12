@@ -20,7 +20,7 @@ Trade-offs vs sync collector (collector.py):
 
 Migration path:
     1. Install asyncssh: uv add asyncssh
-    2. Switch collector import in cli.py: from net_audit.collector_async import collect_all
+    2. Switch collector import in cli.py: from audnet.collector_async import collect_all
     3. Add --workers flag maps to asyncio.Semaphore limit
     4. Keep sync collector as fallback for environments without asyncssh
 """
@@ -38,9 +38,9 @@ from asyncssh import (
 )
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
-from net_audit.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
-from net_audit.parser import parse_interfaces, parse_version, parse_config
-from net_audit.vendor_registry import Slot, get_commands
+from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
 

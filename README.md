@@ -3,13 +3,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/islam666/net-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/islam666/net-audit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/islam666/net-audit)](https://github.com/islam666/net-audit/releases/latest)
-[![PyPI](https://img.shields.io/pypi/v/net-audit.svg)](https://pypi.org/project/net-audit/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/net-audit.svg)](https://pypi.org/project/net-audit/)
+[![Release](https://img.shields.io/github/v/release/islam666/audnet)](https://github.com/islam666/net-audit/releases/latest)
+[![PyPI](https://img.shields.io/pypi/v/audnet.svg)](https://pypi.org/project/audnet/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/audnet.svg)](https://pypi.org/project/audnet/)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    NET-AUDIT ARCHITECTURE                       │
+│                    AUDNET ARCHITECTURE                       │
 │
 │  ┌──────────┐    ┌──────────────┐    ┌────────────────────┐    │
 │  │  YAML     │───▶│  Collector   │───▶│  TextFSM Parser    │    │
@@ -45,7 +45,7 @@ that bypass security baselines — enabling SSHv1, leaving switchports on defaul
 or pointing NTP/syslog to unauthorized servers. Traditional auditing is manual,
 error-prone, and doesn't scale.
 
-**net-audit** solves this by automating SSH-based compliance audits against security baselines.
+**audnet** solves this by automating SSH-based compliance audits against security baselines.
 This detects drift in real-time and prevents future drift by enforcing hardened policies.
 
 ## Solution
@@ -67,16 +67,16 @@ Every layer is independently testable with mocked responses — no real network 
 
 ```bash
 # From PyPI (recommended for production)
-pip install net-audit
+pip install audnet
 
 # Or with uv
-uv tool install net-audit
+uv tool install audnet
 
 # From source (latest development version)
 pip install git+https://github.com/islam666/net-audit.git
 
 # Verify
-net-audit --version
+audnet --version
 ```
 
 ### Development setup (contributors)
@@ -92,7 +92,7 @@ net-audit --version
 ```bash
 # 1. Clone the repository
 git clone https://github.com/islam666/net-audit.git
-cd net-audit
+cd audnet
 
 # 2. Install dependencies (uses uv.lock for reproducible installs)
 uv venv
@@ -105,7 +105,7 @@ source .venv/bin/activate
 pre-commit install
 
 # 5. Verify installation
-python -c "import net_audit; print(net_audit.__version__)"
+python -c "import audnet; print(audnet.__version__)"
 # Expected: 0.1.1
 
 # 6. Run the test suite
@@ -119,10 +119,10 @@ pytest tests/ -v
 
 ```bash
 # Dry run against the sample inventory — no SSH connections made
-net-audit audit --dry-run
+audnet audit --dry-run
 
 # Run a real audit against your devices
-net-audit audit --inventory inventories/devices.yaml --baseline baselines/security_baseline.yaml
+audnet audit --inventory inventories/devices.yaml --baseline baselines/security_baseline.yaml
 ```
 
 ### Configure device inventory
@@ -138,13 +138,13 @@ devices:
   - name: core-router-01
     host: 192.168.1.1
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"  # resolved from environment
+    password: "${AUDNET_PASSWORD}"  # resolved from environment
 ```
 
 Set the password via environment variable:
 
 ```bash
-export NET_AUDIT_PASSWORD="your-secret-password"
+export AUDNET_PASSWORD="your-secret-password"
 ```
 
 #### SSH key-based authentication
@@ -197,7 +197,7 @@ checks:
 
 ```bash
 source .venv/bin/activate
-net-audit audit \
+audnet audit \
   --inventory inventories/devices.yaml \
   --baseline baselines/security_baseline.yaml \
   --output audit_report \
@@ -210,7 +210,7 @@ net-audit audit \
 Filter to one device or specific checks, output JSON for scripting:
 
 ```bash
-net-audit audit --device core-router-01 --check ssh_v2_only,ntp_config --json
+audnet audit --device core-router-01 --check ssh_v2_only,ntp_config --json
 ```
 
 ### Async mode (recommended for >20 devices)
@@ -219,7 +219,7 @@ The asyncio-based collector uses `asyncssh` for lower memory overhead and better
 scalability. It is recommended for audits involving more than 20 devices.
 
 ```bash
-net-audit audit --async
+audnet audit --async
 ```
 
 Trade-offs vs the default sync collector:
@@ -238,7 +238,7 @@ All examples below use the default inventory and baseline paths. Adjust as neede
 #### Audit a single device
 
 ```bash
-net-audit audit --device core-router-01
+audnet audit --device core-router-01
 ```
 
 #### Run specific checks only
@@ -246,19 +246,19 @@ net-audit audit --device core-router-01
 Using comma-separated values in a single `--check`:
 
 ```bash
-net-audit audit --check ssh_v2_only,ntp_config
+audnet audit --check ssh_v2_only,ntp_config
 ```
 
 Or repeat the flag:
 
 ```bash
-net-audit audit --check ssh_v2_only --check ntp_config
+audnet audit --check ssh_v2_only --check ntp_config
 ```
 
 #### JSON output for CI/CD pipelines
 
 ```bash
-net-audit audit --json
+audnet audit --json
 ```
 
 Example output:
@@ -279,7 +279,7 @@ Example output:
 Pipe to `jq` for targeted queries:
 
 ```bash
-net-audit audit --json | jq '.[] | select(.overall_pass == false) | .device_name'
+audnet audit --json | jq '.[] | select(.overall_pass == false) | .device_name'
 ```
 
 #### Dry-run mode
@@ -287,13 +287,13 @@ net-audit audit --json | jq '.[] | select(.overall_pass == false) | .device_name
 Validate your config without touching devices:
 
 ```bash
-net-audit audit --dry-run
+audnet audit --dry-run
 ```
 
 Combine with filters to preview a targeted run:
 
 ```bash
-net-audit audit --dry-run --device core-router-01 --check ssh_v2_only
+audnet audit --dry-run --device core-router-01 --check ssh_v2_only
 ```
 
 #### Strict mode for CI
@@ -302,7 +302,7 @@ Fail immediately if any device has a plaintext password (no `${ENV_VAR}` referen
 Checks `password`, `secret`, `passwd`, and `token` fields:
 
 ```bash
-net-audit audit --strict
+audnet audit --strict
 ```
 
 Without `--strict`, a warning is logged instead of failing.
@@ -310,34 +310,34 @@ Without `--strict`, a warning is logged instead of failing.
 #### Verbose debug logging
 
 ```bash
-net-audit audit -v --dry-run
+audnet audit -v --dry-run
 ```
 
 #### Combined: single device, specific check, JSON, strict
 
 ```bash
-net-audit audit --device core-router-01 --check ssh_v2_only --json --strict
+audnet audit --device core-router-01 --check ssh_v2_only --json --strict
 ```
 
 #### Allow compliance failures without non-zero exit
 
-By default, net-audit exits with code 1 when compliance checks fail. Use `--no-fail`
+By default, audnet exits with code 1 when compliance checks fail. Use `--no-fail`
 to always exit with code 0 (useful when you want the report but don't want CI to break):
 
 ```bash
-net-audit audit --no-fail
+audnet audit --no-fail
 ```
 
 #### Show version
 
 ```bash
-net-audit --version
+audnet --version
 ```
 
 ### Sample Output
 
 ```text
-$ net-audit audit --inventory inventories/devices.yaml
+$ audnet audit --inventory inventories/devices.yaml
 [INFO] Loaded 2 devices from inventory
 [INFO] Connecting in parallel (workers=4)...
 core-router-01: ✓ passed (4/4 checks)
@@ -363,7 +363,7 @@ Summary: 1 passed, 1 with issues.
 || `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
 || `--no-fail` | `false` | Exit with code 0 even when compliance checks fail |
 || `-v`, `--verbose` | `false` | Enable debug logging with console output |
-|| `--version` | — | Show net-audit version and exit |
+|| `--version` | — | Show audnet version and exit |
 || `--async` | `false` | Use asyncio collector (asyncssh) — recommended for >20 devices |
 || `--connect-timeout` | `10` | SSH connection timeout in seconds |
 
@@ -372,12 +372,12 @@ Summary: 1 passed, 1 with issues.
 Use `--dry-run` (or `-n`) to validate your inventory and baseline and preview what would be audited — no SSH connections made:
 
 ```bash
-net-audit audit --inventory inventories/devices.yaml --dry-run
+audnet audit --inventory inventories/devices.yaml --dry-run
 ```
 
 Output:
 ```
-net-audit v0.1.0 — Starting audit...
+audnet v0.1.0 — Starting audit...
 Loaded 2 devices, 4 checks
 DRY RUN — no device connections will be made
 Devices that would be audited:
@@ -393,7 +393,7 @@ Dry run complete — config and baseline are valid
 
 Combine with `--device` and `--check` to filter the preview:
 ```bash
-net-audit audit --dry-run --device core-router-01 --check ssh_v2_only
+audnet audit --dry-run --device core-router-01 --check ssh_v2_only
 ```
 
 ### Output
@@ -407,7 +407,7 @@ The tool produces:
 ## Project Structure
 
 ```
-net-audit/
+audnet/
 ├── pyproject.toml              # Build config, dependencies, pytest/ruff settings
 ├── CHANGELOG.md                # Release history (Keep a Changelog format)
 ├── CONTRIBUTING.md             # Development guidelines, testing, PR workflow
@@ -422,7 +422,7 @@ net-audit/
 │   └── devices.yaml            # Sample device inventory
 ├── baselines/
 │   └── security_baseline.yaml  # Compliance rules configuration
-├── src/net_audit/
+├── src/audnet/
 │   ├── __init__.py             # Package init, version
 │   ├── cli.py                  # Typer CLI entry point
 │   ├── config.py               # YAML inventory/baseline loader with env resolution
@@ -464,7 +464,7 @@ net-audit/
 
 ## Multi-Vendor Support
 
-net-audit uses a vendor registry/dispatch pattern (similar to NAPALM/Nornir driver architecture) for multi-vendor support. Device types are resolved automatically, with Cisco IOS as the fallback default.
+audnet uses a vendor registry/dispatch pattern (similar to NAPALM/Nornir driver architecture) for multi-vendor support. Device types are resolved automatically, with Cisco IOS as the fallback default.
 
 ### Supported vendors
 
@@ -488,19 +488,19 @@ devices:
   - name: core-router-01
     host: 192.168.1.1
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 
   - name: nexus-switch-01
     host: 192.168.1.2
     device_type: cisco_nxos
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 
   - name: arista-leaf-01
     host: 192.168.1.3
     device_type: arista_eos
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 ```
 
 ### Adding a new vendor
@@ -534,7 +534,7 @@ Each template should parse the vendor's equivalent CLI output into the same colu
 
 You have two options — static registration (recommended for built-in vendors) or runtime registration (for plugins or dynamic use).
 
-**Option A: Static registration** — add to `VENDOR_PROFILES` in `src/net_audit/vendor_registry.py`:
+**Option A: Static registration** — add to `VENDOR_PROFILES` in `src/audnet/vendor_registry.py`:
 
 ```python
 VENDOR_PROFILES["juniper_junos"] = _profile(
@@ -553,7 +553,7 @@ The `commands` list must have exactly three entries matching the three slots abo
 **Option B: Runtime registration** — call `register_vendor()` from your code or a plugin:
 
 ```python
-from net_audit.vendor_registry import register_vendor
+from audnet.vendor_registry import register_vendor
 
 register_vendor(
     device_type="juniper_junos",
@@ -562,7 +562,7 @@ register_vendor(
 )
 ```
 
-Runtime registration is useful for plugins, tests, or adding vendors without modifying the net-audit source.
+Runtime registration is useful for plugins, tests, or adding vendors without modifying the audnet source.
 
 #### Step 3: (Optional) Add vendor-specific compliance patterns
 
@@ -591,7 +591,7 @@ devices:
     host: 192.168.1.10
     device_type: juniper_junos
     username: admin
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 ```
 
 That's it. The collector will automatically send the correct commands, the parser will load the correct templates, and the compliance engine will use the correct patterns.
@@ -601,13 +601,13 @@ That's it. The collector will automatically send the correct commands, the parse
 Run a dry-run to confirm the vendor is recognized:
 
 ```bash
-net-audit audit --device juniper-router-01 --dry-run
+audnet audit --device juniper-router-01 --dry-run
 ```
 
 Then run a full audit and check the output:
 
 ```bash
-net-audit audit --device juniper-router-01 --json
+audnet audit --device juniper-router-01 --json
 ```
 
 ### How it works
@@ -662,8 +662,8 @@ To switch to async collection when scaling beyond ~50 devices:
 1. Install asyncssh: `uv add asyncssh`
 2. Change the import in `cli.py`:
    ```python
-   # from net_audit.collector import collect_all
-   from net_audit.collector_async import collect_all_async as collect_all
+   # from audnet.collector import collect_all
+   from audnet.collector_async import collect_all_async as collect_all
    ```
 3. The `--workers` flag maps to `asyncio.Semaphore` limit (default: 50)
 4. Keep the sync collector as fallback for environments without asyncssh
@@ -708,7 +708,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, adding rules, test
 pytest tests/ -v
 
 # Run with coverage
-pytest tests/ --cov=net_audit --cov-report=term-missing
+pytest tests/ --cov=audnet --cov-report=term-missing
 
 # Run specific test file
 pytest tests/test_compliance.py -v
@@ -721,7 +721,7 @@ All tests use mocked device responses — no real SSH connections or network har
 
 ## Security
 
-net-audit takes credential handling seriously. Passwords are stored as `SecretStr` (Pydantic) and are never rendered in logs or output.
+audnet takes credential handling seriously. Passwords are stored as `SecretStr` (Pydantic) and are never rendered in logs or output.
 
 ### Quick Start: Environment Variables
 
@@ -731,12 +731,12 @@ Use `${ENV_VAR}` placeholders in inventory files:
 devices:
   - name: core-switch-01
     host: 10.0.0.1
-    password: "${NET_AUDIT_PASSWORD}"
+    password: "${AUDNET_PASSWORD}"
 ```
 
 ```bash
-export NET_AUDIT_PASSWORD="your-secret"
-net-audit audit
+export AUDNET_PASSWORD="your-secret"
+audnet audit
 ```
 
 ### Production: External Secret Stores
@@ -745,10 +745,10 @@ For production, use a dedicated secret manager instead of environment variables:
 
 | Store             | Example                                      |
 | ----------------- | -------------------------------------------- |
-| HashiCorp Vault   | `export NET_AUDIT_PASSWORD=$(vault kv get ...)` |
-| AWS Secrets Mgr   | `export NET_AUDIT_PASSWORD=$(aws secretsmanager ...)` |
-| 1Password CLI     | `export NET_AUDIT_PASSWORD=$(op read ...)`   |
-| Python keyring    | `keyring.set_password("net-audit", ...)`     |
+| HashiCorp Vault   | `export AUDNET_PASSWORD=$(vault kv get ...)` |
+| AWS Secrets Mgr   | `export AUDNET_PASSWORD=$(aws secretsmanager ...)` |
+| 1Password CLI     | `export AUDNET_PASSWORD=$(op read ...)`   |
+| Python keyring    | `keyring.set_password("audnet", ...)`     |
 
 See [SECURITY.md](SECURITY.md) for detailed integration examples.
 
@@ -757,7 +757,7 @@ See [SECURITY.md](SECURITY.md) for detailed integration examples.
 Use `--strict` in CI pipelines to enforce that no plaintext passwords exist in inventory files:
 
 ```bash
-net-audit audit --strict
+audnet audit --strict
 ```
 
 This fails with a `ConfigError` if any device has a password that is not a `${ENV_VAR}` reference. Without `--strict`, a warning is logged instead.

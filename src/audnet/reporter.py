@@ -6,12 +6,12 @@ from importlib.resources import files
 
 from jinja2 import Environment, BaseLoader
 
-from net_audit.exceptions import ReportError
-from net_audit.models import AuditReport
+from audnet.exceptions import ReportError
+from audnet.models import AuditReport
 
 logger = logging.getLogger(__name__)
 
-_TEMPLATE_PACKAGE = files("net_audit.templates")
+_TEMPLATE_PACKAGE = files("audnet.templates")
 
 
 def _load_template(name: str) -> str:
@@ -20,7 +20,7 @@ def _load_template(name: str) -> str:
         return path.read_text()
     except (FileNotFoundError, OSError) as exc:
         raise ReportError(
-            f"Template '{name}' not found — is net-audit correctly installed? "
+            f"Template '{name}' not found — is audnet correctly installed? "
             f"Try: uv pip install -e ."
         ) from exc
 

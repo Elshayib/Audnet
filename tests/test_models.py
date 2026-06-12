@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from net_audit.models import Device, ComplianceResult, AuditReport, ParsedVersion
+from audnet.models import Device, ComplianceResult, AuditReport, ParsedVersion
 
 
 class TestDevice:

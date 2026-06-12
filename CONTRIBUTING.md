@@ -1,19 +1,19 @@
-# Contributing to net-audit
+# Contributing to audnet
 
-Thanks for your interest in improving net-audit!
+Thanks for your interest in improving audnet!
 
 ## Development Setup
 
 ```bash
 git clone https://github.com/islam666/net-audit.git
-cd net-audit
+cd audnet
 uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
 ## Adding Compliance Rules
 
-1. Implement `_check_<name>(snapshot, config) -> ComplianceResult` in `src/net_audit/compliance.py`
+1. Implement `_check_<name>(snapshot, config) -> ComplianceResult` in `src/audnet/compliance.py`
 2. Register in `_RULE_DISPATCH`
 3. Document in `baselines/security_baseline.yaml` and README
 4. Add tests in `tests/test_compliance.py` (aim for >90% coverage)
@@ -21,7 +21,7 @@ uv pip install -e ".[dev]"
 ## Testing & Quality
 
 ```bash
-pytest tests/ -v --cov=net_audit --cov-report=term-missing
+pytest tests/ -v --cov=audnet --cov-report=term-missing
 ruff check src/ tests/
 mypy src/
 ```
@@ -57,7 +57,7 @@ Related to #123
 
 ## Release Process
 
-net-audit uses [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH).
+audnet uses [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH).
 
 ### When to release
 
