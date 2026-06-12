@@ -70,8 +70,15 @@ def _is_retryable(exc: BaseException) -> bool:
     retry=retry_if_exception(_is_retryable),
     reraise=True,
 )
-async def _do_ssh_collect(device: Device) -> list[str]:
-    """Perform async SSH collection with retry for transient errors."""
+async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> list[str]:
+    """Perform async SSH collection with retry for transient errors.
+
+    Args:
+        device: Device to collect from.
+        known_hosts: Path to known_hosts file. ``None`` uses the system default
+            (``~/.ssh/known_hosts``). Pass an empty string to disable verification
+            (lab/testing only).
+    """
     commands = get_commands(device.device_type)
     password = device.get_password()
     async with asyncssh.connect(
@@ -79,7 +86,7 @@ async def _do_ssh_collect(device: Device) -> list[str]:
         port=device.port,
         username=device.username,
         password=password,
-        known_hosts=None,
+        known_hosts=known_hosts,
         connect_timeout=device.timeout or 30,
     ) as conn:
         results: list[str] = []
@@ -89,15 +96,24 @@ async def _do_ssh_collect(device: Device) -> list[str]:
         return results
 
 
-async def collect_device_async(device: Device) -> DeviceSnapshot:
+async def collect_device_async(
+    device: Device,
+    known_hosts: str | None = None,
+) -> DeviceSnapshot:
     """Collect data from one device asynchronously.
 
     Same interface as sync collect_device(), but uses asyncio + asyncssh
     instead of ThreadPool + Netmiko.
+
+    Args:
+        device: Device to collect from.
+        known_hosts: Path to known_hosts file. ``None`` uses the system default
+            (``~/.ssh/known_hosts``). Pass an empty string to disable verification
+            (lab/testing only).
     """
     logger.info("Collecting data from %s (%s)", device.name, device.host)
     try:
-        raw_outputs = await _do_ssh_collect(device)
+        raw_outputs = await _do_ssh_collect(device, known_hosts=known_hosts)
 
         logger.info("Successfully collected from %s", device.name)
         parsed_version = parse_version(raw_outputs[1], device_type=device.device_type)
@@ -132,6 +148,7 @@ async def collect_all_async(
     devices: list[Device],
     max_workers: int = 50,
     timeout: float | None = None,
+    known_hosts: str | None = None,
 ) -> list[DeviceSnapshot]:
     """Run async collection across all devices concurrently.
 
@@ -144,6 +161,9 @@ async def collect_all_async(
             Defaults to 50 -- much higher than the sync default of 4
             because async connections have minimal per-connection overhead.
         timeout: Optional per-device timeout in seconds.
+        known_hosts: Path to known_hosts file. ``None`` uses the system default
+            (``~/.ssh/known_hosts``). Pass an empty string to disable
+            verification (lab/testing only).
 
     Returns:
         List of DeviceSnapshot results, one per device.
@@ -155,7 +175,7 @@ async def collect_all_async(
             if timeout:
                 try:
                     return await asyncio.wait_for(
-                        collect_device_async(device),
+                        collect_device_async(device, known_hosts=known_hosts),
                         timeout=timeout,
                     )
                 except asyncio.TimeoutError:
@@ -167,7 +187,7 @@ async def collect_all_async(
                         config=ParsedConfig(),
                         collection_error=f"Collection timed out after {timeout}s",
                     )
-            return await collect_device_async(device)
+            return await collect_device_async(device, known_hosts=known_hosts)
 
     tasks = [asyncio.create_task(_bounded_collect(d)) for d in devices]
     return list(await asyncio.gather(*tasks))
