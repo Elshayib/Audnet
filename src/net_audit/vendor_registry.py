@@ -2,7 +2,7 @@
 
 Adding a new vendor requires only:
 1. TextFSM template files following the naming convention:
-   ``<vendor_prefix>_<sanitized_command_name>.textfsm``
+   ``<vendor_prefix>_<slot_suffix>.textfsm``
 2. An entry in ``VENDOR_PROFILES`` with the CLI commands for that vendor.
 
 The registry falls back to cisco_ios for unknown device types, preserving
@@ -13,8 +13,29 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class Slot(Enum):
+    """Named slots mapping command output to parser input.
+
+    Each slot corresponds to one CLI command and one TextFSM template.
+    Using an enum instead of magic indices prevents silent data corruption
+    when adding new commands or reordering existing ones.
+    """
+
+    INTERFACES = "interfaces"
+    VERSION = "version"
+    RUNNING_CONFIG = "running_config"
+
+
+_SLOT_SUFFIX_MAP: dict[Slot, str] = {
+    Slot.INTERFACES: "show_ip_interface_brief",
+    Slot.VERSION: "show_version",
+    Slot.RUNNING_CONFIG: "show_running_config",
+}
 
 
 @dataclass(frozen=True)
@@ -69,17 +90,24 @@ _DEFAULT_VENDOR = "cisco_ios"
 # Command -> template name mapping
 # ---------------------------------------------------------------------------
 
-# Maps the logical slot index (0=interfaces, 1=version, 2=config) to the
-# template file suffix.  Vendors that use different command phrasing can
-# override per-slot via VENDOR_TEMPLATE_SUFFIXES.
-_TEMPLATE_SLOT_SUFFIXES = ("show_ip_interface_brief", "show_version", "show_running_config")
-
 # Per-vendor overrides for template slot suffixes.  Keys are vendor names,
-# values are tuples of 3 suffixes matching the slot order.
-VENDOR_TEMPLATE_SUFFIXES: dict[str, tuple[str, str, str]] = {
-    "cisco_ios": _TEMPLATE_SLOT_SUFFIXES,
-    "cisco_nxos": ("show_ip_interface_brief", "show_version", "show_running_config"),
-    "arista_eos": ("show_ip_interface_brief", "show_version", "show_running_config"),
+# values are dicts mapping Slot -> suffix string.
+VENDOR_TEMPLATE_SUFFIXES: dict[str, dict[Slot, str]] = {
+    "cisco_ios": {
+        Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "cisco_nxos": {
+        Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "arista_eos": {
+        Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
 }
 
 
@@ -96,14 +124,14 @@ def get_commands(device_type: str) -> list[str]:
     return list(get_vendor_profile(device_type).commands)
 
 
-def get_template_name(device_type: str, slot: int) -> str:
+def get_template_name(device_type: str, slot: Slot) -> str:
     """Return the TextFSM template filename (without extension) for the given
-    vendor and logical slot (0=interfaces, 1=version, 2=config)."""
+    vendor and slot."""
     profile = get_vendor_profile(device_type)
     suffixes = VENDOR_TEMPLATE_SUFFIXES.get(
-        device_type, VENDOR_TEMPLATE_SUFFIXES.get(_DEFAULT_VENDOR, _TEMPLATE_SLOT_SUFFIXES)
+        device_type, VENDOR_TEMPLATE_SUFFIXES.get(_DEFAULT_VENDOR, {})
     )
-    suffix = suffixes[slot]
+    suffix = suffixes.get(slot, _SLOT_SUFFIX_MAP[slot])
     return f"{profile.template_prefix}_{suffix}"
 
 
@@ -111,7 +139,7 @@ def register_vendor(
     device_type: str,
     commands: list[str],
     template_prefix: str,
-    template_suffixes: tuple[str, str, str] | None = None,
+    template_suffixes: dict[Slot, str] | None = None,
     description: str = "",
 ) -> None:
     """Register a new vendor at runtime.
@@ -121,7 +149,7 @@ def register_vendor(
         commands: List of CLI commands in slot order
                   (interfaces, version, running-config).
         template_prefix: Prefix used in TextFSM template filenames.
-        template_suffixes: Optional 3-tuple overriding the default slot suffixes.
+        template_suffixes: Optional dict mapping Slot -> suffix string.
         description: Human-readable vendor description.
     """
     VENDOR_PROFILES[device_type] = _profile(

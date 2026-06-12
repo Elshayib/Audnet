@@ -14,7 +14,7 @@ from importlib.resources import files
 import textfsm
 
 from net_audit.exceptions import ParseError
-from net_audit.vendor_registry import get_template_name
+from net_audit.vendor_registry import Slot, get_template_name
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def _normalize_row(row: dict[str, str]) -> dict[str, str]:
 def parse_interfaces(raw: str, device_type: str = "cisco_ios") -> list[dict[str, str]]:
     if not raw.strip():
         return []
-    template_name = get_template_name(device_type, slot=0) + ".textfsm"
+    template_name = get_template_name(device_type, slot=Slot.INTERFACES) + ".textfsm"
     records = _apply_template(template_name, raw)
     return [_normalize_row(r) for r in records]
 
@@ -52,7 +52,7 @@ def parse_interfaces(raw: str, device_type: str = "cisco_ios") -> list[dict[str,
 def parse_version(raw: str, device_type: str = "cisco_ios") -> dict[str, str]:
     if not raw.strip():
         return {}
-    template_name = get_template_name(device_type, slot=1) + ".textfsm"
+    template_name = get_template_name(device_type, slot=Slot.VERSION) + ".textfsm"
     rows = _apply_template(template_name, raw)
     if rows:
         return _normalize_row(rows[0])
