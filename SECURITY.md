@@ -12,7 +12,7 @@
 
 Instead:
 
-1. Go to the [Security tab](https://github.com/islam666/Audnet/security/advisories) of this repository
+1. Go to the [Security tab](https://github.com/Elshayib/Audnet/security/advisories) of this repository
 2. Click "Report a vulnerability"
 3. Provide detailed information (reproduction steps, impact, affected versions)
 
