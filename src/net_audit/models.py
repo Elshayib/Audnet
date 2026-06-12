@@ -2,7 +2,7 @@
 
 import ipaddress
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 
 def _validate_host(value: str) -> str:
@@ -50,6 +50,7 @@ class ParsedInterfaces(BaseModel):
 
 
 class ParsedVersion(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     hostname: str = ""
     version: str = ""
     uptime: str = ""
