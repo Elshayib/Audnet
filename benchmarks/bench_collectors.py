@@ -19,9 +19,9 @@ from unittest.mock import patch, MagicMock
 
 from pydantic import SecretStr
 
-from net_audit.collector import collect_all as sync_collect_all
-from net_audit.collector_async import collect_all_async
-from net_audit.models import Device
+from audnet.collector import collect_all as sync_collect_all
+from audnet.collector_async import collect_all_async
+from audnet.models import Device
 
 # Simulated device counts to benchmark
 DEVICE_COUNTS = [4, 8, 16, 32]
@@ -67,7 +67,7 @@ def run_sync_benchmark(devices: list[Device]) -> dict:
     tracemalloc.start()
     start = time.perf_counter()
 
-    with patch("net_audit.collector.ConnectHandler", return_value=mock_conn):
+    with patch("audnet.collector.ConnectHandler", return_value=mock_conn):
         results = sync_collect_all(devices, max_workers=min(len(devices), 8))
 
     elapsed = time.perf_counter() - start
@@ -88,7 +88,7 @@ async def run_async_benchmark(devices: list[Device]) -> dict:
     tracemalloc.start()
     start = time.perf_counter()
 
-    with patch("net_audit.collector_async.asyncssh") as mock_ssh:
+    with patch("audnet.collector_async.asyncssh") as mock_ssh:
         mock_conn = MagicMock()
         mock_conn.run = MagicMock(return_value=MagicMock(stdout=MOCK_OUTPUTS[0]))
         mock_conn.__aenter__ = MagicMock(return_value=mock_conn)

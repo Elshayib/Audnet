@@ -32,39 +32,39 @@ documentation:
 security:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/reporter.py
-          - src/net_audit/collector.py
+          - src/audnet/reporter.py
+          - src/audnet/collector.py
           - pyproject.toml
 
 collector:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/collector.py
+          - src/audnet/collector.py
 
 cli:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/cli.py
+          - src/audnet/cli.py
 
 compliance:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/compliance.py
+          - src/audnet/compliance.py
 
 parser:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/parser.py
+          - src/audnet/parser.py
 
 models:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/models.py
+          - src/audnet/models.py
 
 config:
   - changed-files:
       - any-glob-to-any-file:
-          - src/net_audit/config.py
+          - src/audnet/config.py
 
 tests:
   - changed-files:
