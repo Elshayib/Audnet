@@ -722,3 +722,69 @@ class TestComplianceEdgeCases:
         r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
         # fail_value "version 1" is checked before ok_value "version 2"
         assert r.passed is False
+
+
+class TestRenamedCheckPropagation:
+    """Baseline key name should propagate to ComplianceResult.check_name."""
+
+    def test_renamed_ssh_check(self):
+        snap = _snap("rtr01", ["ip ssh version 2"])
+        bl = {
+            "checks": {
+                "my_ssh_check": {
+                    "severity": "critical",
+                    "rule": "ssh_v2_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "my_ssh_check"][0]
+        assert r.passed is True
+
+    def test_renamed_vlan_check(self):
+        snap = _snap("sw01", ["interface Gi0/1", " switchport access vlan 999"])
+        bl = {
+            "checks": {
+                "vlan_policy": {
+                    "severity": "high",
+                    "rule": "no_open_ports",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vlan_policy"][0]
+        assert r.passed is False
+        assert "999" in r.detail
+
+    def test_renamed_ntp_check(self):
+        snap = _snap("rtr01", ["ntp server 8.8.8.8"])
+        bl = {
+            "checks": {
+                "time_servers": {
+                    "severity": "medium",
+                    "rule": "ntp_approved",
+                    "approved_servers": ["10.0.0.50"],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "time_servers"][0]
+        assert r.passed is False
+        assert "8.8.8.8" in r.detail
+
+    def test_renamed_syslog_check(self):
+        snap = _snap("rtr01", ["logging host 192.168.99.99"])
+        bl = {
+            "checks": {
+                "log_servers": {
+                    "severity": "medium",
+                    "rule": "syslog_approved",
+                    "approved_servers": ["10.0.0.60"],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "log_servers"][0]
+        assert r.passed is False
+        assert "192.168.99.99" in r.detail
