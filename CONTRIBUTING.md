@@ -93,12 +93,13 @@ Create a release when a meaningful set of changes has accumulated on `master` â€
    git push origin v0.7.0
    ```
 
-5. **Create a GitHub release** (optional but recommended):
-   - Go to https://github.com/islam666/net-audit/releases/new
-   - Select the tag
-   - Title: `v0.7.0`
-   - Copy the relevant CHANGELOG section into the release notes
-   - Publish
+   Pushing the tag triggers the [publish workflow](.github/workflows/publish.yml) which:
+   - Builds the wheel and sdist with `uv build`
+   - Publishes to PyPI automatically via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no API token needed)
+   - Creates a GitHub Release with the CHANGELOG section as release notes
+   - Uploads build artifacts to the release
+
+   **No manual PyPI upload or GitHub Release creation is required.**
 
 ### Versioning guidelines
 
