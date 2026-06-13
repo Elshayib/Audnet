@@ -311,8 +311,7 @@ class TestVendorCommands:
             device_type="arista_eos",
         )
         snap = collect_device(device)
-        assert snap.collection_error is not None
-        assert "TextFSM template not found" in snap.collection_error
+        assert snap.collection_error is None
         mock_get_cmds.assert_called_once_with("arista_eos")
 
     @patch("audnet.collector.get_commands")

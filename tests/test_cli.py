@@ -1176,6 +1176,11 @@ class TestCliTimeout:
 
     def test_timeout_in_help_output(self):
         """--timeout is documented in --help."""
+        import re
         result = runner.invoke(app, ["audit", "--help"])
         assert result.exit_code == 0
-        assert "--timeout" in result.output
+        # Strip Rich ANSI escape codes before checking (CI adds color codes that
+        # break plain substring matching on option flags like "--timeout").
+        _ansi = re.compile(r"\x1b\[[0-9;]*m")
+        clean = _ansi.sub("", result.output)
+        assert "--timeout" in clean
