@@ -32,7 +32,7 @@ class TestVendorProfile:
 
 class TestGetVendorProfileFallback:
     def test_unknown_device_type_falls_back_to_cisco_ios(self):
-        profile = get_vendor_profile("juniper_junos")
+        profile = get_vendor_profile("totally_unknown_vendor")
         assert profile.template_prefix == "cisco_ios"
 
     def test_empty_string_falls_back_to_cisco_ios(self):
@@ -87,7 +87,7 @@ class TestGetTemplateName:
 class TestRegisterVendor:
     def test_register_new_vendor(self):
         register_vendor(
-            device_type="juniper_junos",
+            device_type="test_juniper_junos",
             commands=[
                 "show interfaces terse",
                 "show version",
@@ -96,13 +96,13 @@ class TestRegisterVendor:
             template_prefix="juniper_junos",
             description="Juniper JunOS",
         )
-        profile = get_vendor_profile("juniper_junos")
+        profile = get_vendor_profile("test_juniper_junos")
         assert profile.template_prefix == "juniper_junos"
         assert "show interfaces terse" in profile.commands
 
     def test_register_vendor_with_custom_suffixes(self):
         register_vendor(
-            device_type="paloalto_panos",
+            device_type="test_paloalto_panos",
             commands=[
                 "show interface all",
                 "show system info",
@@ -115,7 +115,7 @@ class TestRegisterVendor:
                 Slot.RUNNING_CONFIG: "show_config_running",
             },
         )
-        name = get_template_name("paloalto_panos", slot=Slot.INTERFACES)
+        name = get_template_name("test_paloalto_panos", slot=Slot.INTERFACES)
         assert name == "paloalto_panos_show_interface_all"
 
     def test_register_vendor_without_suffixes_uses_defaults(self):

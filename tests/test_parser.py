@@ -143,7 +143,7 @@ class TestParserVendorDispatch:
             "Interface              IP-Address      OK? Method Status                Protocol\n"
             "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
         )
-        result = parse_interfaces(raw, device_type="juniper_junos")
+        result = parse_interfaces(raw, device_type="unknown_vendor_xyz")
         assert len(result) == 1
 
     def test_parse_version_uses_cisco_ios_by_default(self):
