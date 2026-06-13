@@ -179,3 +179,181 @@ class TestParserVendorDispatch:
     def test_parse_version_empty_with_vendor(self):
         assert parse_version("", device_type="cisco_ios") == {}
         assert parse_version("   ", device_type="cisco_nxos") == {}
+
+
+class TestParserNxosTemplates:
+    """Tests for cisco_nxos TextFSM template parsing."""
+
+    def test_parse_interfaces_nxos(self):
+        """parse_interfaces correctly parses NX-OS show ip interface brief output."""
+        raw = (
+            'IP Interface Status for VRF "default"(1)\n'
+            "Interface            IP Address         Interface Status\n"
+            "Vlan10                10.0.0.1          protocol-up/link-up/admin-up\n"
+            "Ethernet1/1           192.168.1.1       protocol-up/link-up/admin-up\n"
+        )
+        result = parse_interfaces(raw, device_type="cisco_nxos")
+        assert len(result) == 2
+        iface_names = [r["interface"] for r in result]
+        assert "Vlan10" in iface_names
+        assert "Ethernet1/1" in iface_names
+
+    def test_parse_interfaces_nxos_ip_addresses(self):
+        """NX-OS parse produces ip_address field."""
+        raw = (
+            'IP Interface Status for VRF "default"(1)\n'
+            "Interface            IP Address         Interface Status\n"
+            "Loopback0             10.255.0.1        protocol-up/link-up/admin-up\n"
+        )
+        result = parse_interfaces(raw, device_type="cisco_nxos")
+        assert len(result) == 1
+        assert result[0]["ip_address"] == "10.255.0.1"
+
+    def test_parse_interfaces_nxos_empty(self):
+        assert parse_interfaces("", device_type="cisco_nxos") == []
+
+    def test_parse_version_nxos(self):
+        """parse_version correctly parses NX-OS show version output."""
+        raw = (
+            "Cisco Nexus Operating System (NX-OS) Software\n"
+            "\n"
+            "  BIOS: version 2.12.0\n"
+            "  NXOS: version 9.3(7)\n"
+            "  cisco Nexus9000 C9372PX chassis\n"
+            "  Device name: nxos-switch\n"
+            "  Processor Board ID SAL2015ABCD\n"
+            "\n"
+            "Kernel uptime is 1 day(s), 2 hour(s), 3 minute(s), 4 second(s)\n"
+        )
+        result = parse_version(raw, device_type="cisco_nxos")
+        assert result != {}
+        assert "9.3" in result.get("os", "")
+
+    def test_parse_version_nxos_hostname(self):
+        raw = (
+            "Cisco Nexus Operating System (NX-OS) Software\n"
+            "\n"
+            "  BIOS: version 2.12.0\n"
+            "  NXOS: version 9.3(7)\n"
+            "  cisco Nexus9000 C9372PX chassis\n"
+            "  Device name: core-switch-01\n"
+            "  Processor Board ID SAL2015ABCD\n"
+            "\n"
+            "Kernel uptime is 0 day(s), 6 hour(s), 0 minute(s), 0 second(s)\n"
+        )
+        result = parse_version(raw, device_type="cisco_nxos")
+        assert result.get("hostname") == "core-switch-01"
+
+    def test_parse_version_nxos_empty(self):
+        assert parse_version("", device_type="cisco_nxos") == {}
+
+    def test_parse_config_nxos(self):
+        """parse_config for NX-OS splits config lines identically to IOS."""
+        raw = "hostname nxos-switch\nfeature ssh\nip ssh version 2"
+        result = parse_config(raw, device_type="cisco_nxos")
+        assert "hostname nxos-switch" in result
+        assert "ip ssh version 2" in result
+        assert len(result) == 3
+
+
+class TestParserAristaTemplates:
+    """Tests for arista_eos TextFSM template parsing."""
+
+    def test_parse_interfaces_arista(self):
+        """parse_interfaces correctly parses Arista EOS show ip interface brief output."""
+        raw = (
+            "                                                                        Address\n"
+            "Interface        IP Address         Status      Protocol          MTU   Owner\n"
+            "---------------- ------------------ ----------- ----------------- ----- -------\n"
+            "Ethernet1        10.0.0.1           up          up                1500\n"
+            "Management1      192.168.1.2        up          up                1500\n"
+        )
+        result = parse_interfaces(raw, device_type="arista_eos")
+        assert len(result) == 2
+        iface_names = [r["interface"] for r in result]
+        assert "Ethernet1" in iface_names
+        assert "Management1" in iface_names
+
+    def test_parse_interfaces_arista_ip(self):
+        raw = (
+            "Interface        IP Address         Status      Protocol          MTU\n"
+            "Loopback0        10.255.0.1         up          up                65535\n"
+        )
+        result = parse_interfaces(raw, device_type="arista_eos")
+        assert len(result) == 1
+        assert result[0]["ip_address"] == "10.255.0.1"
+
+    def test_parse_interfaces_arista_empty(self):
+        assert parse_interfaces("", device_type="arista_eos") == []
+
+    def test_parse_version_arista(self):
+        """parse_version correctly parses Arista EOS show version output."""
+        raw = (
+            "Arista DCS-7050TX-64\n"
+            "Hardware version:    01.07\n"
+            "Serial number:       ZZZ9999999\n"
+            "System MAC address:  1234.5678.90ab\n"
+            "Software image version: 4.26.2F\n"
+            "Architecture:        i686\n"
+            "Uptime: 5 days, 3 hours and 24 minutes\n"
+            "Total memory: 1893608 kB\n"
+            "Free memory: 641372 kB\n"
+        )
+        result = parse_version(raw, device_type="arista_eos")
+        assert result != {}
+        assert result.get("model") == "DCS-7050TX-64"
+
+    def test_parse_version_arista_serial(self):
+        raw = (
+            "Arista DCS-7050TX-64\n"
+            "Serial number:       ZZZ9999999\n"
+            "Software image version: 4.26.2F\n"
+            "Uptime: 5 days, 3 hours and 24 minutes\n"
+            "Free memory: 641372 kB\n"
+        )
+        result = parse_version(raw, device_type="arista_eos")
+        assert result.get("serial") == "ZZZ9999999"
+
+    def test_parse_version_arista_image(self):
+        raw = (
+            "Arista DCS-7280CR3-96\n"
+            "Serial number:       ABC1234567\n"
+            "Software image version: 4.28.3M\n"
+            "Uptime: 10 days, 1 hours and 5 minutes\n"
+            "Free memory: 500000 kB\n"
+        )
+        result = parse_version(raw, device_type="arista_eos")
+        assert result.get("image") == "4.28.3M"
+
+    def test_parse_version_arista_empty(self):
+        assert parse_version("", device_type="arista_eos") == {}
+
+    def test_parse_config_arista(self):
+        """parse_config for Arista EOS splits config lines identically to IOS."""
+        raw = "hostname arista-sw\nip ssh version 2\nmanagement api http-commands"
+        result = parse_config(raw, device_type="arista_eos")
+        assert "hostname arista-sw" in result
+        assert "ip ssh version 2" in result
+        assert len(result) == 3
+
+
+class TestParserTemplateExistence:
+    """Verify all 3 expected templates exist for each vendor."""
+
+    @pytest.mark.parametrize(
+        "device_type",
+        ["cisco_ios", "cisco_nxos", "arista_eos"],
+    )
+    def test_interfaces_template_exists(self, device_type):
+        """parse_interfaces with each vendor does not raise ParseError for empty input."""
+        result = parse_interfaces("", device_type=device_type)
+        assert result == []
+
+    @pytest.mark.parametrize(
+        "device_type",
+        ["cisco_ios", "cisco_nxos", "arista_eos"],
+    )
+    def test_version_template_exists(self, device_type):
+        """parse_version with each vendor does not raise ParseError for empty input."""
+        result = parse_version("", device_type=device_type)
+        assert result == {}
