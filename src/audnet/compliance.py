@@ -49,6 +49,11 @@ _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
         "ok_detail": "No SNMPv1/v2c community strings configured",
         "fail_detail": "SNMPv1/v2c community strings found: {lines}",
     },
+    "unused_iface_shutdown": {
+        "iface_prefix": "interface ",
+        "ok_detail": "All unused interfaces are administratively shut down",
+        "fail_detail": "Unused interfaces missing shutdown: {violations}",
+    },
 }
 
 
@@ -255,12 +260,96 @@ def _check_snmp_v3_only(
     )
 
 
+def _check_unused_iface_shutdown(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "unused_iface_shutdown"
+) -> ComplianceResult:
+    """Check that unused interfaces (no IP, not in allowed VLAN) are shut down.
+
+    An interface is considered "active" (exempt from shutdown requirement) if:
+    - It has an IP address assigned (from parsed interfaces), OR
+    - It is in the allowed VLAN set
+
+    All other interfaces must have 'shutdown' configured.
+    """
+    allowed_vlans = set(str(v) for v in config.get("allowed_vlans", []))
+    lines = snapshot.config.lines
+    patterns = _get_patterns("unused_iface_shutdown", config)
+    iface_prefix = patterns["iface_prefix"]
+
+    # Build set of active interface names from parsed interfaces (those with IP)
+    active_ifaces: set[str] = set()
+    for iface in snapshot.interfaces.interfaces:
+        name = iface.get("interface", "")
+        ip_addr = iface.get("ip_address", "")
+        if name and ip_addr and ip_addr not in ("", "unassigned"):
+            active_ifaces.add(name.lower())
+
+    # Track current interface and whether it has shutdown or is in allowed VLAN
+    current_iface: str | None = None
+    has_shutdown = False
+    has_allowed_vlan = False
+    violations: list[str] = []
+
+    def _is_active_by_vlan(iface_name: str) -> bool:
+        """Check if interface name appears in allowed VLAN context."""
+        return iface_name.lower() in active_ifaces
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.lower().startswith(iface_prefix):
+            # Finalize previous interface block
+            if current_iface is not None:
+                is_active = (
+                    current_iface.lower() in active_ifaces or has_allowed_vlan
+                )
+                if not is_active and not has_shutdown:
+                    violations.append(current_iface)
+            # Start new interface block
+            current_iface = stripped.split(" ", 1)[1] if " " in stripped else stripped
+            has_shutdown = False
+            has_allowed_vlan = False
+        elif current_iface is not None:
+            sl = stripped.lower()
+            if "shutdown" == sl:
+                has_shutdown = True
+            elif "switchport access vlan" in sl:
+                parts = stripped.split()
+                if len(parts) >= 4 and parts[-1] in allowed_vlans:
+                    has_allowed_vlan = True
+
+    # Finalize last interface block
+    if current_iface is not None:
+        is_active = (
+            current_iface.lower() in active_ifaces or has_allowed_vlan
+        )
+        if not is_active and not has_shutdown:
+            violations.append(current_iface)
+
+    sev = config["severity"]
+    if violations:
+        logger.info(
+            "%s: unused interfaces missing shutdown: %s",
+            snapshot.device_name,
+            violations,
+        )
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(violations="; ".join(violations)),
+        )
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
 _RULE_DISPATCH: dict[str, Any] = {
     "ssh_v2_only": _check_ssh_v2_only,
     "no_open_ports": _check_no_open_ports,
     "ntp_approved": _check_ntp_approved,
     "syslog_approved": _check_syslog_approved,
     "snmp_v3_only": _check_snmp_v3_only,
+    "unused_iface_shutdown": _check_unused_iface_shutdown,
 }
 
 
