@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-13
+
+### Added
+
+- **Multi-vendor support**: Juniper JunOS and Palo Alto PAN-OS with 6 new TextFSM templates (#121)
+  - Juniper: `show ip interface brief`, `show version`, `show running-config`
+  - Palo Alto: `show interface all`, `show system info`, `show config running`
+- **NetBox dynamic inventory**: Fetch device inventory directly from NetBox API (#122)
+  - `netbox://` URL scheme in inventory path with query param filters (`?site=dc1&role=router`)
+  - Platform mapping for ios, iosxe, nxos, asa, junos, panos, arista_eos
+  - Credential overrides via NetBox `config_context`
+  - `NETBOX_TOKEN` environment variable for API authentication
+- **Docker deployment**: Containerized auditing with scheduled cron support (#123)
+  - Multi-stage Dockerfile (~70MB final image) using `python:3.14-slim`
+  - `docker-compose.yml` with volumes for inventory, baseline, reports, and history
+  - Entrypoint supports `cron` (default), `once`, and `shell` modes
+  - Automatic image publish to `ghcr.io/elshayib/audnet` on `v*` tags
+- **Auto-release workflow**: Automatic GitHub Release creation on `v*` tag push with generated release notes
+- **SQLite audit history**: Persistent storage of audit runs with queryable history (#118)
+  - `--history-dir` and `--no-history` CLI flags
+  - `history` subcommand with `--device`, `--last`, `--since`, `--status`, `--format` filters (#120)
+- **Drift/regression detection**: Compare current audit results against previous runs (#119)
+  - Exit code 2 when new regressions detected
+  - `--no-drift` flag to disable drift checking
+  - Drift summary table in CLI output
+- **Compliance checks**: 5 new Phase 2 compliance checks (#117)
+  - `unused_iface_shutdown` (NIST CM-6)
+  - `snmp_v3_only` (CIS 3.1)
+  - Additional checks for banner, AAA, and NTP authentication
+
+### Documentation
+
+- Updated README with Docker deployment section
+- Updated SECURITY.md with `NETBOX_TOKEN` documentation
+- Updated CLI options table with all current flags
+- Added `history` and `list-vendors` subcommand documentation
+- Updated project structure tree and TextFSM template listing
+
 ## [0.1.2] - 2026-06-12
 
 ### Changed
