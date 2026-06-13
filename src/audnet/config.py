@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import yaml
 
@@ -45,6 +46,24 @@ def _deep_resolve(obj: Any) -> Any:
 
 def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], list[Device]]:
     logger.info("Loading inventory from %s", path)
+
+    # Dynamic inventory sources
+    if path.startswith("netbox://"):
+        from audnet.inventory_sources.netbox import fetch_netbox_devices
+
+        parsed = urlparse(path)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        filters: dict[str, str] = {}
+        if parsed.query:
+            for key, values in parse_qs(parsed.query).items():
+                if values:
+                    filters[key] = values[0]
+        devices = fetch_netbox_devices(base_url, filters=filters)
+        if strict:
+            _check_strict_credentials(devices)
+        logger.info("Loaded %d devices from NetBox", len(devices))
+        return {}, devices
+
     try:
         with open(path) as f:
             data: dict[str, Any] = yaml.safe_load(f)
@@ -92,6 +111,20 @@ def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], lis
         raise ConfigError("No valid devices found in inventory")
     logger.info("Loaded %d devices", len(devices))
     return defaults, devices
+
+
+def _check_strict_credentials(devices: list[Device]) -> None:
+    """Raise ConfigError if any device has a plaintext password."""
+    plaintext: list[str] = []
+    for d in devices:
+        pw = d.get_password()
+        if pw and _is_plaintext(pw):
+            plaintext.append(f"{d.name} (password)")
+    if plaintext:
+        raise ConfigError(
+            f"Plaintext secrets found for device(s): {', '.join(plaintext)}. "
+            "Use ${ENV_VAR} references or an external secret store in production."
+        )
 
 
 def load_baseline(path: str) -> dict[str, Any]:

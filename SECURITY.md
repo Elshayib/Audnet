@@ -102,10 +102,26 @@ devices:
 
 ### What audnet Does
 
-- Passwords are stored as `SecretStr` (Pydantic) — never rendered in logs or output
+- Passwords are stored as `SecretStr` (Pydantic) -- never rendered in logs or output
 - Log redaction filters (`_redact_secrets`) mask password values in all log output
 - Plaintext passwords in inventory files trigger a warning at load time
 - `--strict` mode elevates the warning to a hard failure
+- `NETBOX_TOKEN` is used for NetBox API authentication (see below)
+
+### NetBox Integration
+
+When using `--inventory netbox://host`, audnet authenticates to NetBox via the `NETBOX_TOKEN` environment variable:
+
+```bash
+export NETBOX_TOKEN="your-netbox-api-token"
+net-audit audit --inventory netbox://netbox.example.com
+net-audit audit --inventory netbox://netbox.example.com?site=dc1&role=router
+```
+
+- The token is never logged or written to disk
+- Treat it like a password: use a secret manager in production
+- Generate tokens at `/api/users/tokens/` in NetBox
+- Use read-only tokens with minimal permissions (`dcim > device > read`)
 
 ### What You Must Do
 
