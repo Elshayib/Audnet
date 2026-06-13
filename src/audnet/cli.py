@@ -101,6 +101,11 @@ def audit(
         "--async",
         help="Use asyncio-based SSH collector (recommended for >20 devices)",
     ),
+    connect_timeout: int = typer.Option(
+        30,
+        "--connect-timeout",
+        help="SSH connection timeout in seconds",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -110,6 +115,7 @@ def audit(
     console.print(f"[bold blue]audnet v{__version__} — Starting audit...[/bold blue]")
 
     _, devices = load_inventory(inventory, strict=strict)
+    devices = [d.model_copy(update={"timeout": connect_timeout}) for d in devices]
     baseline_data = load_baseline(baseline)
 
     if device:
