@@ -438,6 +438,83 @@ class TestCliAudit:
         assert result.exit_code == 0, f"Output: {result.output}"
         assert "PASS" in result.output
 
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
+    def test_audit_history_dir(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--history-dir saves audit results to the specified directory."""
+        from audnet.history import get_runs
+
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        hist = tmp_path / "history"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--history-dir",
+                str(hist),
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        runs = get_runs(history_dir=hist)
+        assert len(runs) == 1
+        assert runs[0]["device_name"] == "rtr01"
+        assert runs[0]["overall_pass"] is True
+
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
+    def test_audit_no_history(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--no-history skips writing to the history database."""
+        from audnet.history import get_runs
+
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        hist = tmp_path / "history"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--history-dir",
+                str(hist),
+                "--no-history",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        runs = get_runs(history_dir=hist)
+        assert len(runs) == 0
+
 
 class TestCliDryRun:
     """Tests for --dry-run mode."""
@@ -1177,6 +1254,7 @@ class TestCliTimeout:
     def test_timeout_in_help_output(self):
         """--timeout is documented in --help."""
         import re
+
         result = runner.invoke(app, ["audit", "--help"])
         assert result.exit_code == 0
         # Strip Rich ANSI escape codes before checking (CI adds color codes that
