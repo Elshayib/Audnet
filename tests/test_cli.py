@@ -971,3 +971,211 @@ class TestCliAsyncMode:
         assert result.exit_code == 0, f"Output: {result.output}"
         mock_collect_sync.assert_called_once()
         mock_collect_async.assert_not_called()
+
+
+class TestCliListVendors:
+    """Tests for the list-vendors subcommand."""
+
+    def test_list_vendors_shows_cisco_ios(self):
+        result = runner.invoke(app, ["list-vendors"])
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "cisco_ios" in result.output
+
+    def test_list_vendors_shows_cisco_nxos(self):
+        result = runner.invoke(app, ["list-vendors"])
+        assert result.exit_code == 0
+        assert "cisco_nxos" in result.output
+
+    def test_list_vendors_shows_arista_eos(self):
+        result = runner.invoke(app, ["list-vendors"])
+        assert result.exit_code == 0
+        assert "arista_eos" in result.output
+
+    def test_list_vendors_json_flag(self):
+        result = runner.invoke(app, ["list-vendors", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        json_start = result.output.find("[")
+        assert json_start != -1
+        parsed = _json.loads(result.output[json_start:])
+        device_types = [v["device_type"] for v in parsed]
+        assert "cisco_ios" in device_types
+        assert "arista_eos" in device_types
+        assert "cisco_nxos" in device_types
+
+    def test_list_vendors_json_has_description(self):
+        result = runner.invoke(app, ["list-vendors", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        json_start = result.output.find("[")
+        parsed = _json.loads(result.output[json_start:])
+        ios = next(v for v in parsed if v["device_type"] == "cisco_ios")
+        assert ios["description"]
+
+    def test_list_vendors_sorted(self):
+        result = runner.invoke(app, ["list-vendors", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        json_start = result.output.find("[")
+        parsed = _json.loads(result.output[json_start:])
+        types = [v["device_type"] for v in parsed]
+        assert types == sorted(types)
+
+
+class TestCliListChecks:
+    """Tests for the list-checks subcommand."""
+
+    def test_list_checks_shows_ssh_v2_only(self):
+        result = runner.invoke(app, ["list-checks"])
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "ssh_v2_only" in result.output
+
+    def test_list_checks_shows_all_rules(self):
+        result = runner.invoke(app, ["list-checks"])
+        assert result.exit_code == 0
+        for rule in ("ssh_v2_only", "no_open_ports", "ntp_approved", "syslog_approved"):
+            assert rule in result.output
+
+    def test_list_checks_json_flag(self):
+        result = runner.invoke(app, ["list-checks", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        json_start = result.output.find("[")
+        assert json_start != -1
+        parsed = _json.loads(result.output[json_start:])
+        rules = [c["rule"] for c in parsed]
+        assert "ssh_v2_only" in rules
+        assert "ntp_approved" in rules
+
+    def test_list_checks_json_sorted(self):
+        result = runner.invoke(app, ["list-checks", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        json_start = result.output.find("[")
+        parsed = _json.loads(result.output[json_start:])
+        rules = [c["rule"] for c in parsed]
+        assert rules == sorted(rules)
+
+
+class TestCliTimeout:
+    """Tests for --timeout flag propagation to collect_all."""
+
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
+    def test_timeout_passed_to_collect_all(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """--timeout value is forwarded to collect_all(timeout=...)."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--timeout",
+                "60",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_collect.assert_called_once()
+        _, kwargs = mock_collect.call_args
+        assert kwargs.get("timeout") == 60.0
+
+    @patch("audnet.cli.collect_all")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
+    def test_default_timeout_is_none(self, mock_inv, mock_bl, mock_collect, tmp_path):
+        """Without --timeout, collect_all receives timeout=None."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+        mock_collect.return_value = [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+            ],
+        )
+        mock_collect.assert_called_once()
+        _, kwargs = mock_collect.call_args
+        assert kwargs.get("timeout") is None
+
+    @patch("audnet.cli._collect_all_async")
+    @patch("audnet.cli.load_baseline")
+    @patch("audnet.cli.load_inventory")
+    def test_timeout_passed_to_async_collector(
+        self, mock_inv, mock_bl, mock_collect_async, tmp_path
+    ):
+        """--timeout is also forwarded to collect_all_async when --async is set."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_bl.return_value = {
+            "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
+        }
+
+        async def _fake_async(*args, **kwargs):
+            return [_mock_snapshot("rtr01", ["ip ssh version 2"])]
+
+        mock_collect_async.side_effect = _fake_async
+        inv = _write_inventory(tmp_path)
+        bl = _write_baseline(tmp_path)
+        out = tmp_path / "report"
+        result = runner.invoke(
+            app,
+            [
+                "audit",
+                "--inventory",
+                str(inv),
+                "--baseline",
+                str(bl),
+                "--output",
+                str(out),
+                "--async",
+                "--timeout",
+                "45",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_collect_async.assert_called_once()
+        _, kwargs = mock_collect_async.call_args
+        assert kwargs.get("timeout") == 45.0
+
+    def test_timeout_in_help_output(self):
+        """--timeout is documented in --help."""
+        result = runner.invoke(app, ["audit", "--help"])
+        assert result.exit_code == 0
+        assert "--timeout" in result.output
