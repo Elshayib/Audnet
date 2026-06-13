@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  audnet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/elshayib/audnet:latest
+    container_name: audnet-scheduler
+    restart: unless-stopped
+    environment:
+      # Cron schedule: hourly by default
+      # Override to run daily at 2am: "0 2 * * *"
+      AUDIT_CRON: "${AUDIT_CRON:-0 * * * *}"
+      AUDNET_INVENTORY: "${AUDNET_INVENTORY:-/app/inventory/devices.yaml}"
+      AUDNET_BASELINE: "${AUDNET_BASELINE:-/app/baselines/security_baseline.yaml}"
+      AUDNET_REPORTS: "${AUDNET_REPORTS:-/app/reports}"
+      AUDNET_HISTORY_DIR: "${AUDNET_HISTORY_DIR:-/app/.net-audit}"
+      # Uncomment to use NetBox dynamic inventory instead:
+      # AUDNET_INVENTORY: "netbox://netbox.example.com?site=dc1"
+      # NETBOX_TOKEN: "${NETBOX_TOKEN}"
+    volumes:
+      - ./inventories:/app/inventory:ro
+      - ./baselines:/app/baselines:ro
+      - ./reports:/app/reports
+      - audnet-history:/app/.net-audit
+    # Override command for one-shot audit instead of cron:
+    # command: ["once"]
+
+volumes:
+  audnet-history:
