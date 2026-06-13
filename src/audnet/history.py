@@ -158,8 +158,9 @@ def get_last_runs(
         # Fetch those rows
         ids = [row["max_id"] for row in latest_ids]
         placeholders = ",".join("?" * len(ids))
+        # placeholders is only "?" chars — safe. ids are passed as params.
         rows = conn.execute(
-            f"SELECT * FROM runs WHERE id IN ({placeholders})",
+            f"SELECT * FROM runs WHERE id IN ({placeholders})",  # nosec B608
             ids,
         ).fetchall()
     result = {}
