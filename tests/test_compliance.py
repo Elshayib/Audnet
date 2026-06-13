@@ -845,3 +845,120 @@ class TestRenamedCheckPropagation:
         r = [x for x in run_checks(snap, bl) if x.check_name == "log_servers"][0]
         assert r.passed is False
         assert "192.168.99.99" in r.detail
+
+
+class TestSnmpV3Only:
+    """Tests for the snmp_v3_only compliance check (CIS 3.1)."""
+
+    def test_fail_when_community_string_present(self):
+        """Fails when any snmp-server community line is found."""
+        snap = _snap("rtr01", ["snmp-server community public RO"])
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "SNMPv1/v2c community strings must not be configured",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is False
+        assert "snmp-server community" in r.detail
+
+    def test_fail_multiple_community_strings(self):
+        """Fails and reports all community string lines."""
+        snap = _snap(
+            "rtr01",
+            [
+                "snmp-server community public RO",
+                "snmp-server community private RW",
+            ],
+        )
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is False
+        assert "public" in r.detail
+        assert "private" in r.detail
+
+    def test_pass_when_no_community_strings(self):
+        """Passes when no snmp-server community lines exist."""
+        snap = _snap("rtr01", ["hostname rtr01", "ip ssh version 2"])
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is True
+        assert "No SNMPv1/v2c" in r.detail
+
+    def test_pass_with_snmp_v3_group_only(self):
+        """Passes when SNMPv3 group is configured but no community strings."""
+        snap = _snap(
+            "rtr01",
+            [
+                "snmp-server group mygroup v3 priv",
+                "snmp-server user admin mygroup v3",
+            ],
+        )
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is True
+
+    def test_case_insensitive(self):
+        """Check is case-insensitive for community string matching."""
+        snap = _snap("rtr01", ["SNMP-SERVER COMMUNITY Public RO"])
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is False
+
+    def test_fail_with_community_and_v3_present(self):
+        """Fails if community strings exist even when v3 is also configured."""
+        snap = _snap(
+            "rtr01",
+            [
+                "snmp-server group mygroup v3 priv",
+                "snmp-server community public RO",
+            ],
+        )
+        bl = {
+            "checks": {
+                "snmp_v3_only": {
+                    "severity": "critical",
+                    "rule": "snmp_v3_only",
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
+        assert r.passed is False
+        assert "public" in r.detail
