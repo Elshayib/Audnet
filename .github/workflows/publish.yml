@@ -5,7 +5,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write  # needed for creating GitHub Releases
+  contents: read
 
 jobs:
   build-and-publish:
@@ -36,33 +36,3 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
-      - name: Extract changelog section for this version
-        id: changelog
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Extract the section for this version from CHANGELOG.md
-          NOTES=$(python3 -c "
-          import re, sys
-          version = '${VERSION}'
-          with open('CHANGELOG.md') as f:
-              content = f.read()
-          # Find the section for this version
-          pattern = rf'## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
-          match = re.search(pattern, content, re.DOTALL)
-          if match:
-              print(match.group(0).strip())
-          else:
-              print(f'Version {version} release.')
-          ")
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.changelog.outputs.notes }}
-          files: dist/*
-          draft: false
-          prerelease: false
