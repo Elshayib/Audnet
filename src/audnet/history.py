@@ -132,3 +132,101 @@ def get_runs(
             }
         )
     return result
+
+
+def get_last_runs(
+    history_dir: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Get the most recent run for each device.
+
+    Returns a dict of {device_name: run_dict} where run_dict has
+    keys: id, run_at, device_name, overall_pass, checks.
+    """
+    if history_dir is None:
+        history_dir = _DEFAULT_HISTORY_DIR
+    db_file = _db_path(history_dir)
+    if not db_file.exists():
+        return {}
+    with sqlite3.connect(db_file) as conn:
+        conn.row_factory = sqlite3.Row
+        # Get the latest run id per device
+        latest_ids = conn.execute(
+            "SELECT device_name, MAX(id) as max_id FROM runs GROUP BY device_name"
+        ).fetchall()
+        if not latest_ids:
+            return {}
+        # Fetch those rows
+        ids = [row["max_id"] for row in latest_ids]
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(
+            f"SELECT * FROM runs WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+    result = {}
+    for row in rows:
+        device = row["device_name"]
+        result[device] = {
+            "id": row["id"],
+            "run_at": row["run_at"],
+            "device_name": device,
+            "overall_pass": bool(row["overall_pass"]),
+            "checks": json.loads(row["checks_json"]),
+        }
+    return result
+
+
+def diff_runs(
+    current_reports: list[AuditReport],
+    history_dir: Path | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Compare current audit reports against the most recent stored runs.
+
+    Returns a dict with three keys:
+      - "new_failures": checks that passed last run but fail now
+      - "resolved": checks that failed last run but pass now
+      - "unchanged": checks that fail in both runs
+
+    Each entry is a dict: {"device": str, "check": str, "severity": str, "detail": str}.
+    """
+    last_runs = get_last_runs(history_dir=history_dir)
+    new_failures: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    unchanged: list[dict[str, Any]] = []
+
+    for report in current_reports:
+        last = last_runs.get(report.device_name)
+        if last is None:
+            # No prior run — nothing to diff against
+            continue
+
+        # Build lookup of last run's checks by name
+        last_checks: dict[str, dict[str, Any]] = {}
+        for c in last.get("checks", []):
+            last_checks[c["check_name"]] = c
+
+        for check in report.checks:
+            prev = last_checks.get(check.check_name)
+            if prev is None:
+                # New check not seen before — skip
+                continue
+
+            entry = {
+                "device": report.device_name,
+                "check": check.check_name,
+                "severity": check.severity,
+                "detail": check.detail,
+            }
+
+            if prev["passed"] and not check.passed:
+                new_failures.append(entry)
+            elif not prev["passed"] and check.passed:
+                resolved.append(entry)
+            elif not prev["passed"] and not check.passed:
+                unchanged.append(entry)
+            # Both passing — no change to report
+
+    return {
+        "new_failures": new_failures,
+        "resolved": resolved,
+        "unchanged": unchanged,
+    }
