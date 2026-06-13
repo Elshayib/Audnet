@@ -82,6 +82,24 @@ VENDOR_PROFILES: dict[str, VendorProfile] = {
         prefix="arista_eos",
         description="Arista EOS",
     ),
+    "juniper_junos": _profile(
+        commands=[
+            "show interfaces terse",
+            "show version",
+            "show configuration",
+        ],
+        prefix="juniper_junos",
+        description="Juniper JunOS",
+    ),
+    "paloalto_panos": _profile(
+        commands=[
+            "show interface all",
+            "show system info",
+            "show config running",
+        ],
+        prefix="paloalto_panos",
+        description="Palo Alto PAN-OS",
+    ),
 }
 
 _DEFAULT_VENDOR = "cisco_ios"
@@ -107,6 +125,16 @@ VENDOR_TEMPLATE_SUFFIXES: dict[str, dict[Slot, str]] = {
         Slot.INTERFACES: "show_ip_interface_brief",
         Slot.VERSION: "show_version",
         Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "juniper_junos": {
+        Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "paloalto_panos": {
+        Slot.INTERFACES: "show_interface_all",
+        Slot.VERSION: "show_system_info",
+        Slot.RUNNING_CONFIG: "show_config_running",
     },
 }
 

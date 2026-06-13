@@ -1,0 +1,12 @@
+Value HOSTNAME (\S+)
+Value MODEL (\S+)
+Value JUNOS_VERSION (\S+)
+Value SERIAL (\S+)
+Value UPTIME (.+)
+
+Start
+  ^Hostname:\s+${HOSTNAME}
+  ^Model:\s+${MODEL}
+  ^Junos:\s+${JUNOS_VERSION}
+  ^System serial number:\s+${SERIAL}
+  ^up\s+${UPTIME} -> Record

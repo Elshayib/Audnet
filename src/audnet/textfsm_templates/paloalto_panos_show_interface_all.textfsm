@@ -1,0 +1,11 @@
+Value Required INTERFACE (\S+)
+Value LINK_STATUS (\S+)
+Value IP_ADDRESS (\S+)
+Value ZONE (\S+)
+Value SUB_NETMASK (\S+)
+
+Start
+  ^${INTERFACE}\s+${IP_ADDRESS}\s+${SUB_NETMASK}\s+${LINK_STATUS}\s+${ZONE} -> Record
+  ^${INTERFACE}\s+${IP_ADDRESS}\s+${SUB_NETMASK}\s+${LINK_STATUS} -> Record
+  ^${INTERFACE}\s+(dhcp|dhcp-up|\*{0,3}\.\S+)\s+${IP_ADDRESS}\s+${SUB_NETMASK}\s+${LINK_STATUS}\s+${ZONE} -> Record
+  ^${INTERFACE}\s+(dhcp|dhcp-up|\*{0,3}\.\S+)\s+${IP_ADDRESS}\s+${SUB_NETMASK}\s+${LINK_STATUS} -> Record
