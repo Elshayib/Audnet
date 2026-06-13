@@ -231,6 +231,11 @@ _RULE_DISPATCH: dict[str, Any] = {
 }
 
 
+def list_checks() -> list[str]:
+    """Return all available compliance rule names."""
+    return sorted(_RULE_DISPATCH.keys())
+
+
 def run_checks(snapshot: DeviceSnapshot, baseline: dict[str, Any]) -> list[ComplianceResult]:
     results = []
     for check_name, check_config in baseline.get("checks", {}).items():
