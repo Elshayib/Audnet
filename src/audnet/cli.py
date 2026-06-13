@@ -16,7 +16,7 @@ from audnet.compliance import run_checks
 from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
-from audnet.history import save_run
+from audnet.history import save_run, diff_runs
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
@@ -121,6 +121,11 @@ def audit(
         False,
         "--no-history",
         help="Skip writing audit results to the history database",
+    ),
+    no_drift: bool = typer.Option(
+        False,
+        "--no-drift",
+        help="Skip drift/regression detection between audit runs",
     ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
@@ -233,12 +238,40 @@ def audit(
         json_data = [r.model_dump(mode="json") for r in reports]
         console.print_json(json.dumps(json_data))
 
-    # Save to history
+    # Drift detection (before saving current run, so we compare against prior state)
+    has_new_regressions = False
+    if not no_drift and not no_history:
+        try:
+            drift = diff_runs(reports, history_dir=history_dir)
+            new_failures = drift["new_failures"]
+            resolved = drift["resolved"]
+            unchanged = drift["unchanged"]
+            if new_failures or resolved or unchanged:
+                drift_table = Table(title="Drift / Regression Detection")
+                drift_table.add_column("Status")
+                drift_table.add_column("Device")
+                drift_table.add_column("Check")
+                for entry in new_failures:
+                    drift_table.add_row("[red]NEW FAILURE[/red]", entry["device"], entry["check"])
+                for entry in resolved:
+                    drift_table.add_row("[green]RESOLVED[/green]", entry["device"], entry["check"])
+                for entry in unchanged:
+                    drift_table.add_row("[dim]UNCHANGED[/dim]", entry["device"], entry["check"])
+                console.print(drift_table)
+            if new_failures:
+                has_new_regressions = True
+        except Exception as exc:
+            logger.warning("Failed to compute drift: %s", exc)
+
+    # Save to history (after drift detection so current run isn't its own baseline)
     if not no_history:
         try:
             save_run(reports, history_dir=history_dir)
         except Exception as exc:
             logger.warning("Failed to save audit history: %s", exc)
+
+    if has_new_regressions:
+        raise typer.Exit(code=2)
 
     if not no_fail and reports and not all(r.overall_pass for r in reports):
         raise typer.Exit(code=1)

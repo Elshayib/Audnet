@@ -2,6 +2,19 @@ import pytest
 from audnet.models import Device
 
 
+@pytest.fixture(autouse=True)
+def _clean_default_history(tmp_path, monkeypatch):
+    """Isolate each test from the default ~/.net-audit/history.db.
+
+    Tests that explicitly pass --history-dir manage their own DB.
+    All others get a fresh temp dir so history from one test never
+    leaks into the next.
+    """
+    hist = tmp_path / "default_history"
+    hist.mkdir(exist_ok=True)
+    monkeypatch.setattr("audnet.history._DEFAULT_HISTORY_DIR", hist)
+
+
 @pytest.fixture
 def sample_device():
     return Device(name="rtr01", host="10.0.0.1", username="admin", password="x")
