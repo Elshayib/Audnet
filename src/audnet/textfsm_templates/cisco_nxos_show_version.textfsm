@@ -1,0 +1,18 @@
+Value UPTIME ((\d+\s\w+.s.,?\s?){1,4})
+Value BIOS (\S+)
+Value OS (\S+)
+Value PLATFORM ([\w-]+)
+Value HOSTNAME (.+)
+Value SERIAL (\w+)
+
+Start
+  ^\s+BIOS:\s+version\s+${BIOS}\s*$$
+  ^\s+NXOS:\s+version\s+${OS}\s*$$
+  ^\s+system:\s+version\s+${OS}\s*$$
+  ^\s+cisco\s+Nexus\d+\s+${PLATFORM}
+  ^\s+cisco\s+${PLATFORM}\s+[cC]hassis
+  ^\s+cisco\s+Nexus\s+${PLATFORM}\s+[cC]hassis
+  ^\s+Device\s+name:\s+${HOSTNAME}$$
+  ^\s+Processor\s+[Bb]oard\s+ID\s+${SERIAL}$$
+  ^Kernel\s+uptime\s+is\s+${UPTIME} -> Record
+  ^.*$$
