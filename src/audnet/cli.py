@@ -106,6 +106,11 @@ def audit(
         "--connect-timeout",
         help="SSH connection timeout in seconds",
     ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        help="Per-device collection wall-clock timeout in seconds (None = no limit)",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -159,9 +164,9 @@ def audit(
             from audnet.collector_async import collect_all_async
 
             _collect_all_async = collect_all_async
-        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers))
+        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers, timeout=timeout))
     else:
-        snapshots = collect_all(devices, max_workers=workers)
+        snapshots = collect_all(devices, max_workers=workers, timeout=timeout)
 
     # Resolve check filter
     if check:
@@ -219,6 +224,40 @@ def audit(
 
     if not no_fail and reports and not all(r.overall_pass for r in reports):
         raise typer.Exit(code=1)
+
+
+@app.command(name="list-vendors")
+def list_vendors_cmd(
+    json_out: bool = typer.Option(False, "--json", help="Output JSON"),
+) -> None:
+    """List all registered vendor device types with descriptions."""
+    from audnet.vendor_registry import list_vendors, VENDOR_PROFILES
+
+    vendors = list_vendors()
+    if json_out:
+        data = [
+            {"device_type": v, "description": VENDOR_PROFILES[v].description} for v in vendors
+        ]
+        console.print_json(json.dumps(data))
+    else:
+        for v in vendors:
+            desc = VENDOR_PROFILES[v].description or v
+            console.print(f"{v:<20} — {desc}")
+
+
+@app.command(name="list-checks")
+def list_checks_cmd(
+    json_out: bool = typer.Option(False, "--json", help="Output JSON"),
+) -> None:
+    """List all available compliance rule names."""
+    from audnet.compliance import list_checks
+
+    checks = list_checks()
+    if json_out:
+        console.print_json(json.dumps([{"rule": c} for c in checks]))
+    else:
+        for c in checks:
+            console.print(f"{c:<20} (rule: {c})")
 
 
 @app.command()
