@@ -115,7 +115,6 @@ def audit(
     console.print(f"[bold blue]audnet v{__version__} — Starting audit...[/bold blue]")
 
     _, devices = load_inventory(inventory, strict=strict)
-    devices = [d.model_copy(update={"timeout": connect_timeout}) for d in devices]
     baseline_data = load_baseline(baseline)
 
     if device:
@@ -145,6 +144,10 @@ def audit(
                 )
         console.print("[green]Dry run complete — config and baseline are valid[/green]")
         return
+
+    # Apply SSH connection timeout to each device before collection
+    for d in devices:
+        d.timeout = connect_timeout
 
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
