@@ -44,6 +44,11 @@ _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
         "fail_detail": "Unapproved syslog servers: {violations}",
         "fail_detail_missing": "No syslog servers configured — at least one required",
     },
+    "snmp_v3_only": {
+        "match": "snmp-server community",
+        "ok_detail": "No SNMPv1/v2c community strings configured",
+        "fail_detail": "SNMPv1/v2c community strings found: {lines}",
+    },
 }
 
 
@@ -223,11 +228,39 @@ def _check_syslog_approved(
     )
 
 
+def _check_snmp_v3_only(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "snmp_v3_only"
+) -> ComplianceResult:
+    """Check that no SNMPv1/v2c community strings are configured."""
+    lines = snapshot.config.lines
+    sev = config["severity"]
+    patterns = _get_patterns("snmp_v3_only", config)
+    match = patterns["match"]
+
+    community_lines = [line.strip() for line in lines if match in line.lower()]
+    if community_lines:
+        logger.info(
+            "%s: SNMPv1/v2c community strings found: %s",
+            snapshot.device_name,
+            community_lines,
+        )
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(lines="; ".join(community_lines)),
+        )
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
 _RULE_DISPATCH: dict[str, Any] = {
     "ssh_v2_only": _check_ssh_v2_only,
     "no_open_ports": _check_no_open_ports,
     "ntp_approved": _check_ntp_approved,
     "syslog_approved": _check_syslog_approved,
+    "snmp_v3_only": _check_snmp_v3_only,
 }
 
 
