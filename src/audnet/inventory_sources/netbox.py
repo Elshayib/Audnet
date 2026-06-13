@@ -144,14 +144,20 @@ def fetch_netbox_devices(
         },
     )
 
+    # Validate scheme to prevent file:// or other unexpected protocols
+    if req.type not in ("http", "https"):
+        raise ConfigError(
+            f"NetBox URL must use http or https scheme, got: {req.type}"
+        )
+
     try:
-        with urlopen(req, timeout=30) as resp:
+        with urlopen(req, timeout=30) as resp:  # nosec B310
             body = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
         detail = ""
         try:
             detail = json.loads(exc.read().decode("utf-8")).get("detail", "")
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             pass
         msg = f"NetBox API error: {exc.code}"
         if detail:

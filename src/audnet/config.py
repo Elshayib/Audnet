@@ -52,7 +52,9 @@ def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], lis
         from audnet.inventory_sources.netbox import fetch_netbox_devices
 
         parsed = urlparse(path)
-        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        # netbox://host/path -> https://host/path
+        scheme = "https" if parsed.scheme == "netbox" else parsed.scheme
+        base_url = f"{scheme}://{parsed.netloc}"
         filters: dict[str, str] = {}
         if parsed.query:
             for key, values in parse_qs(parsed.query).items():

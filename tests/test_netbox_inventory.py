@@ -328,6 +328,29 @@ class TestFetchNetboxDevices:
         with pytest.raises(ConfigError, match="500"):
             fetch_netbox_devices("https://nb.example.com", token="test-token")
 
+    def test_http_scheme_allowed(self):
+        """http:// is accepted (for internal/test NetBox instances)."""
+        with patch("audnet.inventory_sources.netbox.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = _mock_urlopen(
+                _make_netbox_response([{
+                    "name": "rtr01",
+                    "primary_ip": {"address": "10.0.0.1/24"},
+                    "platform": {"slug": "ios"},
+                }])
+            )
+            devices = fetch_netbox_devices("http://nb.example.com", token="test-token")
+            assert len(devices) == 1
+
+    def test_file_scheme_rejected(self):
+        """Non-http(s) schemes are rejected with ConfigError."""
+        with pytest.raises(ConfigError, match="NetBox URL must use http or https"):
+            fetch_netbox_devices("file:///etc/passwd", token="test-token")
+
+    def test_ftp_scheme_rejected(self):
+        """Non-http(s) schemes are rejected with ConfigError."""
+        with pytest.raises(ConfigError, match="NetBox URL must use http or https"):
+            fetch_netbox_devices("ftp://nb.example.com", token="test-token")
+
 
 # ---------------------------------------------------------------------------
 # load_inventory integration with netbox:// prefix
