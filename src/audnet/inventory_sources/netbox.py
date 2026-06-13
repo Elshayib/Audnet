@@ -26,10 +26,8 @@ _DEFAULT_STATUS = "active"
 def _build_url(base: str, filters: dict[str, str]) -> str:
     """Append query parameters to a base URL."""
     parsed = urlparse(base)
-    existing = parse_qs(parsed.query)
-    merged: dict[str, list[str]] = {}
-    for k, v in existing.items():
-        merged[k] = v
+    existing: dict[str, list[str]] = parse_qs(parsed.query)
+    merged = dict(existing)
     for k, v in filters.items():
         merged[k] = [v]
     new_qs = urlencode(sorted(merged.items()), doseq=True)

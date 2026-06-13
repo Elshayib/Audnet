@@ -99,18 +99,18 @@ def load_inventory(path: str, strict: bool = False) -> tuple[dict[str, Any], lis
 
     raw_data = _deep_resolve(data)
     defaults = raw_data.get("defaults", {})
-    devices: list[Device] = []
+    yaml_devices: list[Device] = []
     for entry in raw_data.get("devices", []):
         merged = {**defaults, **entry}
         try:
-            devices.append(Device(**merged))
+            yaml_devices.append(Device(**merged))
         except ValidationError as exc:
             name = merged.get("name", merged.get("host", "unknown"))
             logger.warning("Skipping invalid device '%s': %s", name, exc)
-    if not devices:
+    if not yaml_devices:
         raise ConfigError("No valid devices found in inventory")
-    logger.info("Loaded %d devices", len(devices))
-    return defaults, devices
+    logger.info("Loaded %d devices", len(yaml_devices))
+    return defaults, yaml_devices
 
 
 def _check_strict_credentials(devices: list[Device]) -> None:
