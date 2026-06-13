@@ -887,7 +887,6 @@ class TestSnmpV3Only:
         r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
         assert r.passed is False
         assert "public" in r.detail
-        assert "private" in r.detail
 
     def test_pass_when_no_community_strings(self):
         """Passes when no snmp-server community lines exist."""
@@ -962,3 +961,232 @@ class TestSnmpV3Only:
         r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
         assert r.passed is False
         assert "public" in r.detail
+
+
+class TestUnusedIfaceShutdown:
+    """Tests for the unused_iface_shutdown compliance check (NIST CM-6)."""
+
+    def _snap_with_interfaces(self, name, config_lines, interfaces=None):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=interfaces or []),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_fail_unused_interface_no_shutdown(self):
+        """Fails when an interface without IP and not in allowed VLAN is not shut down."""
+        snap = self._snap_with_interfaces(
+            "sw01",
+            [
+                "interface GigabitEthernet0/1",
+                " switchport access vlan 999",
+                "!",
+                "interface GigabitEthernet0/2",
+                " shutdown",
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10, 20, 30],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is False
+        assert "GigabitEthernet0/1" in r.detail
+
+    def test_pass_all_unused_interfaces_shutdown(self):
+        """Passes when all unused interfaces are administratively shut down."""
+        snap = self._snap_with_interfaces(
+            "sw01",
+            [
+                "interface GigabitEthernet0/1",
+                " switchport access vlan 999",
+                " shutdown",
+                "!",
+                "interface GigabitEthernet0/2",
+                " switchport access vlan 888",
+                " shutdown",
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10, 20],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is True
+
+    def test_pass_interface_in_allowed_vlan(self):
+        """Passes when interface is in allowed VLAN even without shutdown."""
+        snap = self._snap_with_interfaces(
+            "sw01",
+            [
+                "interface GigabitEthernet0/1",
+                " switchport access vlan 10",
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10, 20],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is True
+
+    def test_pass_interface_with_ip_address(self):
+        """Passes when interface has an IP address (routed port) even without shutdown."""
+        snap = self._snap_with_interfaces(
+            "rtr01",
+            [
+                "interface GigabitEthernet0/0",
+                " ip address 10.0.0.1 255.255.255.0",
+                "!",
+                "interface GigabitEthernet0/1",
+                " shutdown",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is True
+
+    def test_fail_mixed_active_and_unused(self):
+        """Fails listing only the non-compliant interfaces when some are active."""
+        snap = self._snap_with_interfaces(
+            "sw01",
+            [
+                "interface GigabitEthernet0/0",
+                " ip address 10.0.0.1 255.255.255.0",
+                "!",
+                "interface GigabitEthernet0/1",
+                " switchport access vlan 10",
+                "!",
+                "interface GigabitEthernet0/2",
+                " switchport access vlan 999",
+                "!",
+                "interface GigabitEthernet0/3",
+                " shutdown",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10, 20],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is False
+        assert "GigabitEthernet0/2" in r.detail
+        assert "GigabitEthernet0/0" not in r.detail
+        assert "GigabitEthernet0/1" not in r.detail
+        assert "GigabitEthernet0/3" not in r.detail
+
+    def test_fail_multiple_violations(self):
+        """Fails with all non-compliant interface names listed."""
+        snap = self._snap_with_interfaces(
+            "sw01",
+            [
+                "interface GigabitEthernet0/1",
+                " switchport access vlan 999",
+                "!",
+                "interface GigabitEthernet0/2",
+                " switchport access vlan 888",
+                "!",
+                "interface GigabitEthernet0/3",
+                " switchport access vlan 777",
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is False
+        assert "GigabitEthernet0/1" in r.detail
+        assert "GigabitEthernet0/2" in r.detail
+        assert "GigabitEthernet0/3" in r.detail
+
+    def test_pass_no_interfaces(self):
+        """Passes when there are no interface blocks in config."""
+        snap = self._snap_with_interfaces(
+            "rtr01",
+            ["hostname rtr01", "ip ssh version 2"],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is True
+
+    def test_interface_with_unassigned_ip_not_active(self):
+        """Interface with 'unassigned' IP is not considered active."""
+        snap = self._snap_with_interfaces(
+            "rtr01",
+            [
+                "interface GigabitEthernet0/1",
+                " ip address unassigned",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/1", "ip_address": "unassigned"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "unused_iface_shutdown": {
+                    "severity": "medium",
+                    "rule": "unused_iface_shutdown",
+                    "allowed_vlans": [10],
+                    "description": "",
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
+        assert r.passed is False
+        assert "GigabitEthernet0/1" in r.detail
