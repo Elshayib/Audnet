@@ -10,7 +10,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    AUDNET ARCHITECTURE                       │
-│
+│                                                                 │
 │  ┌──────────┐    ┌──────────────┐    ┌────────────────────┐    │
 │  │  YAML     │───▶│  Collector   │───▶│  TextFSM Parser    │    │
 │  │  Inventory│    │  (Netmiko +  │    │  (CLI → JSON)      │    │
@@ -19,7 +19,7 @@
 │                         │                      ▼                │
 │                         │            ┌────────────────────┐    │
 │                         │            │  Compliance Engine  │    │
-│                         │            │  (4 Security Rules) │    │
+│                         │            │  (11 Security Rules)│    │
 │                         │                     │                │
 │                         ▼                     ▼                │
 │              ┌──────────────────┐   ┌────────────────────┐    │
@@ -58,6 +58,10 @@ A Python CLI tool that:
 4. **Audits against baselines** — flags SSHv1, unauthorized VLANs, rogue NTP/syslog servers
 5. **Generates reports** — professional Markdown and HTML with pass/fail summaries
 6. **Supports filters & JSON** for targeted runs and CI integration
+7. **Tracks history** — SQLite-backed audit history with drift/regression detection
+8. **Multi-vendor** — Cisco IOS/XE/NX-OS, Arista EOS, Juniper JunOS, Palo Alto PAN-OS
+9. **NetBox inventory** — dynamic device inventory from NetBox API
+10. **Docker-ready** — containerized scheduled auditing with cron support
 
 Every layer is independently testable with mocked responses — no real network hardware required.
 
@@ -106,11 +110,9 @@ pre-commit install
 
 # 5. Verify installation
 python -c "import audnet; print(audnet.__version__)"
-# Expected: 0.1.1
 
 # 6. Run the test suite
 pytest tests/ -v
-# Expected: 226 passed
 ```
 
 `uv pip install -e ".[dev]"` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
@@ -144,7 +146,7 @@ devices:
 Set the password via environment variable:
 
 ```bash
-export AUDNET_PASSWORD="your-secret-password"
+export AUDNET_PASSWORD="your-secure-password"
 ```
 
 #### SSH key-based authentication
@@ -162,6 +164,17 @@ devices:
 
 - `use_keys: true` — enable SSH key authentication
 - `key_file` — path to the private key file (optional; uses SSH agent or default keys if omitted)
+
+#### NetBox dynamic inventory
+
+Fetch devices directly from NetBox instead of a static YAML file:
+
+```bash
+export NETBOX_TOKEN="your-netbox-token"
+audnet audit --inventory "netbox://netbox.example.com?site=dc1&role=router"
+```
+
+See [NetBox inventory](#netbox-dynamic-inventory) section below for full details.
 
 ### Customize security baseline
 
@@ -205,7 +218,7 @@ audnet audit \
   --workers 4
 ```
 
-### Advanced usage (new in this release)
+### Advanced usage
 
 Filter to one device or specific checks, output JSON for scripting:
 
@@ -328,10 +341,47 @@ to always exit with code 0 (useful when you want the report but don't want CI to
 audnet audit --no-fail
 ```
 
+#### Audit history
+
+Query past audit runs from the SQLite history store:
+
+```bash
+# Show last 20 runs
+audnet history
+
+# Show last 5 runs for a specific device
+audnet history --device core-router-01 --last 5
+
+# Show runs from the last 7 days
+audnet history --since 7d
+
+# Show only failed runs
+audnet history --status fail
+
+# JSON output
+audnet history --format json
+```
+
+#### List vendors
+
+List all registered vendor device types:
+
+```bash
+audnet list-vendors
+```
+
+#### List checks
+
+List all available compliance rule names:
+
+```bash
+audnet list-checks
+```
+
 #### Show version
 
 ```bash
-audnet --version
+audnet version
 ```
 
 ### Sample Output
@@ -349,9 +399,11 @@ Summary: 1 passed, 1 with issues.
 
 ### CLI options
 
+#### `audit` subcommand
+
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--inventory` | `inventories/devices.yaml` | Device inventory YAML path |
+| `--inventory` | `inventories/devices.yaml` | Device inventory YAML path, or `netbox://` URL |
 | `--baseline` | `baselines/security_baseline.yaml` | Security baseline YAML path |
 | `--output` | `audit_report` | Output file prefix |
 | `--format` | `both` | Output format: `md`, `html`, or `both` |
@@ -363,9 +415,23 @@ Summary: 1 passed, 1 with issues.
 | `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
 | `--no-fail` | `false` | Exit with code 0 even when compliance checks fail |
 | `-v`, `--verbose` | `false` | Enable debug logging with console output |
-| `--version` | — | Show audnet version and exit |
 | `--async` | `false` | Use asyncio collector (asyncssh) — recommended for >20 devices |
 | `--connect-timeout` | `30` | SSH connection timeout in seconds |
+| `--timeout` | (none) | Per-device collection wall-clock timeout in seconds |
+| `--history-dir` | `~/.net-audit` | Directory for the SQLite history database |
+| `--no-history` | `false` | Skip writing audit results to the history database |
+| `--no-drift` | `false` | Skip drift/regression detection between audit runs |
+
+#### `history` subcommand
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--device` | (all) | Filter to a single device by name |
+| `--last` | `20` | Show last N runs |
+| `--since` | (none) | Show runs from last N days/hours (e.g. `7d`, `24h`, `2w`) |
+| `--status` | (all) | Filter by status: `pass` or `fail` |
+| `--format` | `table` | Output format: `table` or `json` |
+| `--history-dir` | `~/.net-audit` | Directory for the SQLite history database |
 
 ### Dry-run mode
 
@@ -377,17 +443,24 @@ audnet audit --inventory inventories/devices.yaml --dry-run
 
 Output:
 ```
-audnet v0.1.2 — Starting audit...
-Loaded 2 devices, 4 checks
+audnet v0.2.0 — Starting audit...
+Loaded 2 devices, 11 checks
 DRY RUN — no device connections will be made
 Devices that would be audited:
   • core-router-01 (192.168.1.1) — cisco_ios
   • dist-switch-02 (192.168.1.2) — cisco_ios
 Checks that would be run:
-  • inactive_ports
-  • ntp_config
   • ssh_v2_only
-  • syslog_config
+  • no_open_ports
+  • ntp_approved
+  • syslog_approved
+  • aaa_auth
+  • cdp_disabled
+  • login_banner
+  • password_encryption
+  • snmp_v3_only
+  • unused_iface_shutdown
+  • vty_timeout
 Dry run complete — config and baseline are valid
 ```
 
@@ -416,12 +489,24 @@ audnet/
 ├── SECURITY.md                 # Security policy, credential handling, disclosure
 ├── uv.lock                     # Reproducible dependency lockfile
 ├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy, bandit, etc.)
+├── Dockerfile                  # Multi-stage Docker build (~70MB image)
+├── docker-compose.yml          # Container orchestration with cron scheduling
+├── entrypoint.sh               # Container entrypoint (cron/once/shell modes)
 ├── benchmarks/
 │   └── bench_collectors.py     # Sync vs async collector performance benchmarks
 ├── inventories/
 │   └── devices.yaml            # Sample device inventory
 ├── baselines/
 │   └── security_baseline.yaml  # Compliance rules configuration
+├── .github/
+│   └── workflows/
+│       ├── ci.yml              # Lint + security + test (3.12/3.13/3.14)
+│       ├── publish.yml         # PyPI publish on v* tags (Trusted Publishing)
+│       ├── docker.yml          # Docker image publish to ghcr.io on v* tags
+│       ├── release.yml         # GitHub Release creation on v* tags
+│       ├── auto-close-issues.yml  # Auto-close linked issues on PR merge
+│       ├── issue-labeler.yml   # Auto-label issues
+│       └── size-label.yml      # Auto-label PR size
 ├── src/audnet/
 │   ├── __init__.py             # Package init, version
 │   ├── cli.py                  # Typer CLI entry point
@@ -432,8 +517,12 @@ audnet/
 │   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries)
 │   ├── collector_async.py      # Asyncio collector (asyncssh + semaphore concurrency)
 │   ├── parser.py               # TextFSM parser (CLI → structured JSON, vendor-aware)
-│   ├── compliance.py           # Rule engine (4 security checks, vendor-pattern overrides)
+│   ├── compliance.py           # Rule engine (11 security checks, vendor-pattern overrides)
 │   ├── reporter.py             # Jinja2 report generator (Markdown + HTML)
+│   ├── history.py              # SQLite audit history store with drift detection
+│   ├── inventory_sources/
+│   │   ├── __init__.py
+│   │   └── netbox.py           # NetBox dynamic inventory fetcher
 │   ├── templates/
 │   │   ├── __init__.py
 │   │   ├── audit_report.md.j2  # Markdown report template
@@ -444,7 +533,19 @@ audnet/
 │       ├── cisco_ios_show_version.textfsm
 │       ├── cisco_ios_show_running_config.textfsm
 │       ├── cisco_ios_show_interface_status.textfsm
-│       └── cisco_ios_show_cdp_neighbors_detail.textfsm
+│       ├── cisco_ios_show_cdp_neighbors_detail.textfsm
+│       ├── cisco_nxos_show_ip_interface_brief.textfsm
+│       ├── cisco_nxos_show_version.textfsm
+│       ├── cisco_nxos_show_running_config.textfsm
+│       ├── arista_eos_show_ip_interface_brief.textfsm
+│       ├── arista_eos_show_version.textfsm
+│       ├── arista_eos_show_running_config.textfsm
+│       ├── juniper_junos_show_ip_interface_brief.textfsm
+│       ├── juniper_junos_show_version.textfsm
+│       ├── juniper_junos_show_running_config.textfsm
+│       ├── paloalto_panos_show_interface_all.textfsm
+│       ├── paloalto_panos_show_system_info.textfsm
+│       └── paloalto_panos_show_config_running.textfsm
 └── tests/
     ├── __init__.py
     ├── conftest.py             # Shared pytest fixtures
@@ -453,13 +554,17 @@ audnet/
     ├── test_collector.py       # SSH collection, error handling, vendor dispatch
     ├── test_collector_async.py # Async collector: success, auth failure, timeout, mixed
     ├── test_parser.py          # TextFSM parsing, vendor-aware template selection
-    ├── test_compliance.py      # All 4 rule types (pass/fail), case-insensitive
+    ├── test_compliance.py      # All rule types (pass/fail), case-insensitive
     ├── test_reporter.py        # Markdown/HTML rendering
     ├── test_vendor_registry.py # Vendor profiles, dispatch, registration
     ├── test_exceptions.py      # Exception hierarchy and inheritance
     ├── test_integration.py     # End-to-end: compliant, noncompliant, partial
     ├── test_logging.py         # Structlog configuration and secret redaction
-    └── test_version.py         # Version string format and accessibility
+    ├── test_version.py         # Version string format and accessibility
+    ├── test_history.py         # SQLite history store operations
+    ├── test_drift.py           # Drift/regression detection
+    ├── test_cli.py             # CLI tests including history subcommand
+    └── test_netbox_inventory.py # NetBox inventory fetcher (mocked API)
 ```
 
 ## Multi-Vendor Support
@@ -473,6 +578,8 @@ audnet uses a vendor registry/dispatch pattern (similar to NAPALM/Nornir driver 
 | Cisco IOS/IOS-XE | `cisco_ios` | `cisco_ios` |
 | Cisco NX-OS | `cisco_nxos` | `cisco_nxos` |
 | Arista EOS | `arista_eos` | `arista_eos` |
+| Juniper JunOS | `juniper_junos` | `juniper_junos` |
+| Palo Alto PAN-OS | `paloalto_panos` | `paloalto_panos` |
 
 Unknown device types fall back to `cisco_ios` commands and templates.
 
@@ -499,6 +606,18 @@ devices:
   - name: arista-leaf-01
     host: 192.168.1.3
     device_type: arista_eos
+    username: admin
+    password: "${AUDNET_PASSWORD}"
+
+  - name: juniper-router-01
+    host: 192.168.1.4
+    device_type: juniper_junos
+    username: admin
+    password: "${AUDNET_PASSWORD}"
+
+  - name: paloalto-fw-01
+    host: 192.168.1.5
+    device_type: paloalto_panos
     username: admin
     password: "${AUDNET_PASSWORD}"
 ```
@@ -618,6 +737,69 @@ audnet audit --device juniper-router-01 --json
 - `compliance.py` uses pattern-based matching with optional per-vendor overrides
 - All vendor resolution falls back to `cisco_ios` for unknown device types
 
+## NetBox Dynamic Inventory
+
+audnet can fetch device inventory directly from a NetBox instance, eliminating the need to maintain a separate YAML file.
+
+### Usage
+
+Set the inventory path to a `netbox://` URL:
+
+```bash
+export NETBOX_TOKEN="your-netbox-api-token"
+audnet audit --inventory "netbox://netbox.example.com?site=dc1&role=router"
+```
+
+Or in your inventory YAML, use the URL directly:
+
+```bash
+audnet audit --inventory "netbox://netbox.example.com"
+```
+
+### URL format
+
+```
+netbox://<host> [?site=<site>&role=<role>&tag=<tag>&device_type=<type>]
+```
+
+All query parameters are optional and filter the device list returned by NetBox.
+
+### Platform mapping
+
+NetBox device platforms are automatically mapped to audnet vendor device types:
+
+| NetBox platform | audnet device_type |
+|-----------------|-------------------|
+| `ios` | `cisco_ios` |
+| `iosxe` | `cisco_ios` |
+| `nxos` | `cisco_nxos` |
+| `asa` | `cisco_ios` |
+| `junos` | `juniper_junos` |
+| `panos` | `paloalto_panos` |
+| `arista_eos` | `arista_eos` |
+
+### Credential overrides
+
+NetBox `config_context` can provide per-device credential overrides. If a device's config context contains an `audnet` key, those values override the inventory defaults:
+
+```json
+{
+  "audnet": {
+    "username": "netbox_admin",
+    "password": "${NETBOX_AUDNET_PASSWORD}",
+    "port": 2222
+  }
+}
+```
+
+### Authentication
+
+Set the `NETBOX_TOKEN` environment variable with a NetBox API token. The token needs read permissions for `dcim.devices`, `dcim.sites`, and `dcim.device-roles`.
+
+### Requirements
+
+The NetBox inventory module uses only Python standard library (`urllib.request`, `json`) — no additional dependencies required.
+
 ## Performance & Scalability
 
 ### Current architecture: ThreadPool + Netmiko
@@ -628,7 +810,7 @@ with Netmiko for SSH. This works well for small-to-medium inventories (up to
 
 - **Thread overhead**: Each concurrent connection consumes a thread (~8MB stack)
 - **GIL contention**: Python's GIL limits true parallelism for CPU-bound parsing
-- **Memory**: 100 devices × 4 threads = significant memory for thread stacks
+- **Memory**: 100 devices x 4 threads = significant memory for thread stacks
 
 ### Async prototype: asyncio + asyncssh
 
@@ -689,6 +871,13 @@ Scrapli would replace only the SSH transport layer in the collector.
 | Inactive Ports | `no_open_ports` | High | Switchports in unauthorized VLANs |
 | NTP Config | `ntp_approved` | Medium | NTP servers not in approved list |
 | Syslog Config | `syslog_approved` | Medium | Syslog servers not in approved list |
+| AAA Auth | `aaa_auth` | High | Missing AAA authentication |
+| CDP Disabled | `cdp_disabled` | Medium | CDP enabled on interfaces |
+| Login Banner | `login_banner` | Medium | Missing login banner |
+| Password Encryption | `password_encryption` | High | Password encryption not enabled |
+| SNMP v3 | `snmp_v3_only` | High | SNMPv1/v2 enabled |
+| Unused Interface Shutdown | `unused_iface_shutdown` | Medium | Active unused interfaces |
+| VTY Timeout | `vty_timeout` | Medium | Missing VTY exec-timeout |
 
 ### Adding a new compliance rule
 
@@ -735,7 +924,7 @@ devices:
 ```
 
 ```bash
-export AUDNET_PASSWORD="your-secret"
+export AUDNET_PASSWORD="***"
 audnet audit
 ```
 
@@ -743,12 +932,12 @@ audnet audit
 
 For production, use a dedicated secret manager instead of environment variables:
 
-| Store             | Example                                      |
-| ----------------- | -------------------------------------------- |
-| HashiCorp Vault   | `export AUDNET_PASSWORD=$(vault kv get ...)` |
-| AWS Secrets Mgr   | `export AUDNET_PASSWORD=$(aws secretsmanager ...)` |
-| 1Password CLI     | `export AUDNET_PASSWORD=$(op read ...)`   |
-| Python keyring    | `keyring.set_password("audnet", ...)`     |
+| Store             | Example                                              |
+| ----------------- | ---------------------------------------------------- |
+| HashiCorp Vault   | `export AUDNET_PASSWORD=$(vault kv get ...)`         |
+| AWS Secrets Mgr   | `export AUDNET_PASSWORD=$(aws secretsmanager ...)`   |
+| 1Password CLI     | `export AUDNET_PASSWORD=$(op read ...)`              |
+| Python keyring    | `keyring.set_password("audnet", ...)`                |
 
 See [SECURITY.md](SECURITY.md) for detailed integration examples.
 
@@ -817,6 +1006,7 @@ All configuration is via environment variables:
 | `AUDNET_BASELINE` | `/app/baselines/security_baseline.yaml` | Path to baseline YAML |
 | `AUDNET_REPORTS` | `/app/reports` | Report output directory |
 | `AUDNET_HISTORY_DIR` | `/app/.net-audit` | History database directory |
+| `NETBOX_TOKEN` | (none) | NetBox API token (required for `netbox://` inventory) |
 
 ### Volume mounts
 
@@ -876,9 +1066,9 @@ docker compose run --rm -e AUDNET_INVENTORY="netbox://netbox.example.com?site=dc
 The image is built with a multi-stage Dockerfile and targets < 200MB:
 
 ```bash
- docker images ghcr.io/elshayib/audnet:latest
+docker images ghcr.io/elshayib/audnet:latest
 # IMAGE          SIZE
-# audnet         ~150MB
+# audnet         ~70MB
 ```
 
 ## Changelog
