@@ -16,6 +16,7 @@ from audnet.compliance import run_checks
 from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
+from audnet.history import save_run
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
@@ -110,6 +111,16 @@ def audit(
         None,
         "--timeout",
         help="Per-device collection wall-clock timeout in seconds (None = no limit)",
+    ),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Directory for the SQLite history DB (default: ~/.net-audit)",
+    ),
+    no_history: bool = typer.Option(
+        False,
+        "--no-history",
+        help="Skip writing audit results to the history database",
     ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
@@ -222,6 +233,13 @@ def audit(
         json_data = [r.model_dump(mode="json") for r in reports]
         console.print_json(json.dumps(json_data))
 
+    # Save to history
+    if not no_history:
+        try:
+            save_run(reports, history_dir=history_dir)
+        except Exception as exc:
+            logger.warning("Failed to save audit history: %s", exc)
+
     if not no_fail and reports and not all(r.overall_pass for r in reports):
         raise typer.Exit(code=1)
 
@@ -235,9 +253,7 @@ def list_vendors_cmd(
 
     vendors = list_vendors()
     if json_out:
-        data = [
-            {"device_type": v, "description": VENDOR_PROFILES[v].description} for v in vendors
-        ]
+        data = [{"device_type": v, "description": VENDOR_PROFILES[v].description} for v in vendors]
         console.print_json(json.dumps(data))
     else:
         for v in vendors:
