@@ -1190,3 +1190,307 @@ class TestUnusedIfaceShutdown:
         r = [x for x in run_checks(snap, bl) if x.check_name == "unused_iface_shutdown"][0]
         assert r.passed is False
         assert "GigabitEthernet0/1" in r.detail
+
+
+class TestVtyTimeout:
+    """Tests for the vty_timeout compliance check (CIS 2.1)."""
+
+    def _snap(self, name, config_lines):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=[]),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_pass_within_limit(self):
+        """Passes when exec-timeout is within the allowed limit."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " exec-timeout 5 0",
+            " login local",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is True
+
+    def test_pass_at_boundary(self):
+        """Passes when exec-timeout equals the max."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " exec-timeout 10 0",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is True
+
+    def test_fail_exceeds_limit(self):
+        """Fails when exec-timeout exceeds the max."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " exec-timeout 15 0",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is False
+        assert "15min" in r.detail
+
+    def test_fail_missing_timeout(self):
+        """Fails when exec-timeout is missing from VTY block."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " login local",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is False
+        assert "missing" in r.detail.lower()
+
+    def test_multiple_vty_ranges(self):
+        """Checks multiple VTY line ranges."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " exec-timeout 5 0",
+            "line vty 5 15",
+            " exec-timeout 15 0",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is False
+        assert "vty 5 15" in r.detail
+
+    def test_default_max_timeout(self):
+        """Uses default max_timeout_minutes of 10 when not specified."""
+        snap = self._snap("rtr01", [
+            "line vty 0 4",
+            " exec-timeout 11 0",
+        ])
+        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
+        assert r.passed is False
+
+
+class TestAaaAuth:
+    """Tests for the aaa_auth compliance check (NIST AC-2)."""
+
+    def _snap(self, name, config_lines):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=[]),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_pass_both_present(self):
+        """Passes when both aaa new-model and aaa authentication login default are present."""
+        snap = self._snap("rtr01", [
+            "aaa new-model",
+            "aaa authentication login default group tacacs+ local",
+        ])
+        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
+        assert r.passed is True
+
+    def test_fail_missing_new_model(self):
+        """Fails when aaa new-model is absent."""
+        snap = self._snap("rtr01", [
+            "aaa authentication login default group tacacs+ local",
+        ])
+        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
+        assert r.passed is False
+        assert "aaa new-model" in r.detail
+
+    def test_fail_missing_auth_login(self):
+        """Fails when aaa authentication login default is absent."""
+        snap = self._snap("rtr01", [
+            "aaa new-model",
+        ])
+        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
+        assert r.passed is False
+        assert "aaa authentication login default" in r.detail
+
+    def test_fail_both_missing(self):
+        """Fails when both are absent (reports new-model missing first)."""
+        snap = self._snap("rtr01", ["hostname rtr01"])
+        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
+        assert r.passed is False
+        assert "aaa new-model" in r.detail
+
+    def test_case_insensitive(self):
+        """Check is case-insensitive."""
+        snap = self._snap("rtr01", [
+            "AAA NEW-MODEL",
+            "AAA AUTHENTICATION LOGIN DEFAULT group tacacs+ local",
+        ])
+        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
+        assert r.passed is True
+
+
+class TestPasswordEncryption:
+    """Tests for the password_encryption compliance check (CIS 1.2)."""
+
+    def _snap(self, name, config_lines):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=[]),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_pass_when_present(self):
+        """Passes when service password-encryption is present."""
+        snap = self._snap("rtr01", ["service password-encryption"])
+        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
+        assert r.passed is True
+
+    def test_fail_when_absent(self):
+        """Fails when service password-encryption is absent."""
+        snap = self._snap("rtr01", ["hostname rtr01"])
+        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
+        assert r.passed is False
+
+    def test_case_insensitive(self):
+        """Check is case-insensitive."""
+        snap = self._snap("rtr01", ["SERVICE PASSWORD-ENCRYPTION"])
+        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
+        assert r.passed is True
+
+
+class TestCdpDisabled:
+    """Tests for the cdp_disabled compliance check (CIS 4.5)."""
+
+    def _snap(self, name, config_lines, interfaces=None):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=interfaces or []),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_pass_global_disable(self):
+        """Passes when no cdp run is globally configured."""
+        snap = self._snap("rtr01", [
+            "no cdp run",
+            "interface GigabitEthernet0/0",
+        ])
+        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
+        assert r.passed is True
+
+    def test_pass_per_interface_disable(self):
+        """Passes when all interfaces have no cdp enable."""
+        snap = self._snap("rtr01", [
+            "interface GigabitEthernet0/0",
+            " no cdp enable",
+            "interface GigabitEthernet0/1",
+            " no cdp enable",
+        ], interfaces=[
+            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+            {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
+        ])
+        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
+        assert r.passed is True
+
+    def test_fail_cdp_active_on_interface(self):
+        """Fails when CDP is active on an interface without no cdp enable."""
+        snap = self._snap("rtr01", [
+            "interface GigabitEthernet0/0",
+            " ip address 10.0.0.1 255.255.255.0",
+        ], interfaces=[
+            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+        ])
+        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
+        assert r.passed is False
+        assert "gigabitethernet0/0" in r.detail
+
+    def test_fail_mixed_interfaces(self):
+        """Fails listing only interfaces without CDP disabled."""
+        snap = self._snap("rtr01", [
+            "interface GigabitEthernet0/0",
+            " no cdp enable",
+            "interface GigabitEthernet0/1",
+            " ip address 10.0.0.2 255.255.255.0",
+        ], interfaces=[
+            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+            {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
+        ])
+        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
+        assert r.passed is False
+        assert "gigabitethernet0/1" in r.detail
+        assert "gigabitethernet0/0" not in r.detail
+
+
+class TestLoginBanner:
+    """Tests for the login_banner compliance check (CIS 1.3)."""
+
+    def _snap(self, name, config_lines):
+        return DeviceSnapshot(
+            device_name=name,
+            interfaces=ParsedInterfaces(interfaces=[]),
+            version=ParsedVersion(),
+            config=ParsedConfig(lines=config_lines),
+        )
+
+    def test_pass_banner_present(self):
+        """Passes when banner login is configured."""
+        snap = self._snap("rtr01", [
+            "banner login ^",
+            "Authorized access only",
+            "^",
+        ])
+        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
+        assert r.passed is True
+
+    def test_fail_banner_missing(self):
+        """Fails when banner login is absent."""
+        snap = self._snap("rtr01", ["hostname rtr01"])
+        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
+        assert r.passed is False
+
+    def test_pass_with_required_pattern(self):
+        """Passes when banner contains the required pattern."""
+        snap = self._snap("rtr01", [
+            "banner login ^",
+            "Unauthorized access prohibited",
+            "^",
+        ])
+        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner",
+                                           "required_pattern": "Unauthorized access prohibited", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
+        assert r.passed is True
+
+    def test_fail_pattern_mismatch(self):
+        """Fails when banner does not contain the required pattern."""
+        snap = self._snap("rtr01", [
+            "banner login ^",
+            "Welcome to this device",
+            "^",
+        ])
+        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner",
+                                           "required_pattern": "Unauthorized access prohibited", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
+        assert r.passed is False
+        assert "Unauthorized access prohibited" in r.detail
+
+    def test_no_pattern_check_when_not_configured(self):
+        """Does not check pattern when required_pattern is not in config."""
+        snap = self._snap("rtr01", [
+            "banner login ^",
+            "Welcome!",
+            "^",
+        ])
+        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
+        assert r.passed is True

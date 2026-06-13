@@ -54,6 +54,35 @@ _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
         "ok_detail": "All unused interfaces are administratively shut down",
         "fail_detail": "Unused interfaces missing shutdown: {violations}",
     },
+    "vty_timeout": {
+        "line_prefix": "line vty",
+        "match": "exec-timeout",
+        "ok_detail": "All VTY lines have exec-timeout within limit",
+        "fail_detail": "VTY lines exceeding max exec-timeout: {violations}",
+        "fail_detail_missing": "VTY lines missing exec-timeout: {violations}",
+    },
+    "aaa_auth": {
+        "match_new_model": "aaa new-model",
+        "match_auth_login": "aaa authentication login default",
+        "ok_detail": "AAA new-model and login authentication are configured",
+        "fail_detail_missing_new_model": "aaa new-model is not configured",
+        "fail_detail_missing_auth": "aaa authentication login default is not configured",
+    },
+    "password_encryption": {
+        "match": "service password-encryption",
+        "ok_detail": "service password-encryption is enabled",
+        "fail_detail": "service password-encryption is not configured",
+    },
+    "cdp_disabled": {
+        "ok_detail": "CDP is disabled globally or on all interfaces",
+        "fail_detail": "CDP is active on: {violations}",
+    },
+    "login_banner": {
+        "match": "banner login",
+        "ok_detail": "Login banner is configured",
+        "fail_detail_missing": "banner login is not configured",
+        "fail_detail_pattern": "Login banner does not contain required pattern: {pattern}",
+    },
 }
 
 
@@ -343,6 +372,235 @@ def _check_unused_iface_shutdown(
     )
 
 
+def _check_vty_timeout(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "vty_timeout"
+) -> ComplianceResult:
+    """Check that all VTY line blocks have exec-timeout within the allowed limit."""
+    import re as _re
+
+    max_minutes = int(config.get("max_timeout_minutes", 10))
+    lines = snapshot.config.lines
+    patterns = _get_patterns("vty_timeout", config)
+    line_prefix = patterns["line_prefix"]
+    match = patterns["match"]
+
+    in_vty = False
+    has_timeout = False
+    timeout_minutes = 0
+    violations: list[str] = []
+    missing: list[str] = []
+    vty_block = ""
+
+    for line in lines:
+        stripped = line.strip()
+        sl = stripped.lower()
+        if sl.startswith(line_prefix):
+            # Finalize previous VTY block
+            if in_vty:
+                if not has_timeout:
+                    missing.append(vty_block)
+                elif timeout_minutes > max_minutes:
+                    violations.append(f"{vty_block} (timeout={timeout_minutes}min)")
+            in_vty = True
+            has_timeout = False
+            timeout_minutes = 0
+            vty_block = stripped
+        elif in_vty and match in sl:
+            has_timeout = True
+            m = _re.search(r"exec-timeout\s+(\d+)", sl)
+            if m:
+                timeout_minutes = int(m.group(1))
+
+    # Finalize last VTY block
+    if in_vty:
+        if not has_timeout:
+            missing.append(vty_block)
+        elif timeout_minutes > max_minutes:
+            violations.append(f"{vty_block} (timeout={timeout_minutes}min)")
+
+    sev = config["severity"]
+    if missing:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing"].format(violations="; ".join(missing)),
+        )
+    if violations:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(violations="; ".join(violations)),
+        )
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
+def _check_aaa_auth(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "aaa_auth"
+) -> ComplianceResult:
+    """Check that aaa new-model and aaa authentication login default are configured."""
+    lines = snapshot.config.lines
+    patterns = _get_patterns("aaa_auth", config)
+    sev = config["severity"]
+
+    has_new_model = False
+    has_auth_login = False
+    for line in lines:
+        sl = line.strip().lower()
+        if patterns["match_new_model"] in sl:
+            has_new_model = True
+        if patterns["match_auth_login"] in sl:
+            has_auth_login = True
+        if has_new_model and has_auth_login:
+            break
+
+    if not has_new_model:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing_new_model"],
+        )
+    if not has_auth_login:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing_auth"],
+        )
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
+def _check_password_encryption(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "password_encryption"
+) -> ComplianceResult:
+    """Check that service password-encryption is configured."""
+    lines = snapshot.config.lines
+    patterns = _get_patterns("password_encryption", config)
+    sev = config["severity"]
+
+    for line in lines:
+        if patterns["match"] in line.lower():
+            return ComplianceResult(
+                check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+            )
+    return ComplianceResult(
+        check_name=check_name, passed=False, severity=sev, detail=patterns["fail_detail"]
+    )
+
+
+def _check_cdp_disabled(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "cdp_disabled"
+) -> ComplianceResult:
+    """Check that CDP is disabled globally (no cdp run) or per-interface (no cdp enable)."""
+    lines = snapshot.config.lines
+    patterns = _get_patterns("cdp_disabled", config)
+    sev = config["severity"]
+
+    # Check for global disable
+    for line in lines:
+        if "no cdp run" in line.lower():
+            return ComplianceResult(
+                check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+            )
+
+    # Check per-interface: track interfaces with 'no cdp enable'
+    iface_cdp_disabled: set[str] = set()
+    current_iface: str | None = None
+    for line in lines:
+        stripped = line.strip()
+        sl = stripped.lower()
+        if sl.startswith("interface "):
+            current_iface = stripped.split(" ", 1)[1] if " " in stripped else stripped
+        elif current_iface is not None and "no cdp enable" in sl:
+            iface_cdp_disabled.add(current_iface.lower())
+
+    # Build set of all interfaces from parsed interfaces
+    all_ifaces: set[str] = set()
+    for iface in snapshot.interfaces.interfaces:
+        name = iface.get("interface", "")
+        if name:
+            all_ifaces.add(name.lower())
+
+    # If we have interface data, check that all interfaces have CDP disabled
+    if all_ifaces:
+        active_cdp = all_ifaces - iface_cdp_disabled
+        if active_cdp:
+            violations = sorted(active_cdp)
+            return ComplianceResult(
+                check_name=check_name,
+                passed=False,
+                severity=sev,
+                detail=patterns["fail_detail"].format(violations="; ".join(violations)),
+            )
+
+    # No interface data available and no global disable — pass (can't determine)
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
+def _check_login_banner(
+    snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "login_banner"
+) -> ComplianceResult:
+    """Check that a login banner is configured, optionally matching a required pattern."""
+    lines = snapshot.config.lines
+    patterns = _get_patterns("login_banner", config)
+    required_pattern = config.get("required_pattern")
+    sev = config["severity"]
+
+    banner_found = False
+    banner_text_lines: list[str] = []
+    in_banner = False
+    banner_delimiter = None
+
+    for line in lines:
+        stripped = line.strip()
+        sl = stripped.lower()
+        if patterns["match"] in sl:
+            banner_found = True
+            in_banner = True
+            # Extract delimiter character (e.g., "banner login ^" -> ^)
+            parts = stripped.split()
+            if len(parts) >= 3:
+                banner_delimiter = parts[-1]
+            banner_text_lines.append(stripped)
+            continue
+        if in_banner:
+            if banner_delimiter and banner_delimiter in stripped:
+                in_banner = False
+                banner_delimiter = None
+            else:
+                banner_text_lines.append(stripped)
+
+    if not banner_found:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_missing"],
+        )
+
+    if required_pattern:
+        full_banner = " ".join(banner_text_lines)
+        if required_pattern.lower() not in full_banner.lower():
+            return ComplianceResult(
+                check_name=check_name,
+                passed=False,
+                severity=sev,
+                detail=patterns["fail_detail_pattern"].format(pattern=required_pattern),
+            )
+
+    return ComplianceResult(
+        check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+    )
+
+
 _RULE_DISPATCH: dict[str, Any] = {
     "ssh_v2_only": _check_ssh_v2_only,
     "no_open_ports": _check_no_open_ports,
@@ -350,6 +608,11 @@ _RULE_DISPATCH: dict[str, Any] = {
     "syslog_approved": _check_syslog_approved,
     "snmp_v3_only": _check_snmp_v3_only,
     "unused_iface_shutdown": _check_unused_iface_shutdown,
+    "vty_timeout": _check_vty_timeout,
+    "aaa_auth": _check_aaa_auth,
+    "password_encryption": _check_password_encryption,
+    "cdp_disabled": _check_cdp_disabled,
+    "login_banner": _check_login_banner,
 }
 
 
