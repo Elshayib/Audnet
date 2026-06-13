@@ -101,6 +101,11 @@ def audit(
         "--async",
         help="Use asyncio-based SSH collector (recommended for >20 devices)",
     ),
+    connect_timeout: int = typer.Option(
+        30,
+        "--connect-timeout",
+        help="SSH connection timeout in seconds",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -139,6 +144,10 @@ def audit(
                 )
         console.print("[green]Dry run complete — config and baseline are valid[/green]")
         return
+
+    # Apply SSH connection timeout to each device before collection
+    for d in devices:
+        d.timeout = connect_timeout
 
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")

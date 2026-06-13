@@ -110,7 +110,7 @@ python -c "import audnet; print(audnet.__version__)"
 
 # 6. Run the test suite
 pytest tests/ -v
-# Expected: 200+ passed
+# Expected: 226 passed
 ```
 
 `uv pip install -e ".[dev]"` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
@@ -360,12 +360,12 @@ Summary: 1 passed, 1 with issues.
 | `--check` | (all) | Filter to specific checks (repeatable; comma-separated) |
 | `--json` | `false` | Output JSON summary to stdout |
 | `--dry-run`, `-n` | `false` | Validate config without connecting to devices |
-|| `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
-|| `--no-fail` | `false` | Exit with code 0 even when compliance checks fail |
-|| `-v`, `--verbose` | `false` | Enable debug logging with console output |
-|| `--version` | — | Show audnet version and exit |
-|| `--async` | `false` | Use asyncio collector (asyncssh) — recommended for >20 devices |
-|| `--connect-timeout` | `10` | SSH connection timeout in seconds |
+| `--strict` | `false` | Fail on plaintext passwords (no `${ENV_VAR}` reference) |
+| `--no-fail` | `false` | Exit with code 0 even when compliance checks fail |
+| `-v`, `--verbose` | `false` | Enable debug logging with console output |
+| `--version` | — | Show audnet version and exit |
+| `--async` | `false` | Use asyncio collector (asyncssh) — recommended for >20 devices |
+| `--connect-timeout` | `30` | SSH connection timeout in seconds |
 
 ### Dry-run mode
 
@@ -377,7 +377,7 @@ audnet audit --inventory inventories/devices.yaml --dry-run
 
 Output:
 ```
-audnet v0.1.0 — Starting audit...
+audnet v0.1.2 — Starting audit...
 Loaded 2 devices, 4 checks
 DRY RUN — no device connections will be made
 Devices that would be audited:
