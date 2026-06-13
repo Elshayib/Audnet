@@ -785,6 +785,102 @@ devices:
 
 See [SECURITY.md](SECURITY.md) for the full security policy, vulnerability reporting, and responsible disclosure.
 
+## Docker Deployment
+
+audnet can run as a scheduled audit container — no host-level cron needed. The image
+is published to `ghcr.io/elshayib/audnet` on every version tag.
+
+### Quick start
+
+```bash
+# Clone and bring up
+git clone https://github.com/Elshayib/Audnet.git && cd Audnet
+
+# Place your inventory and baseline files in the default paths:
+#   inventories/devices.yaml
+#   baselines/security_baseline.yaml
+# Or set custom paths via environment variables.
+
+docker compose up -d
+```
+
+Reports are written to `./reports/`; history is persisted in a named volume.
+
+### Configuration
+
+All configuration is via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUDIT_CRON` | `0 * * * *` | Cron schedule (hourly). Daily at 2am: `"0 2 * * *"` |
+| `AUDNET_INVENTORY` | `/app/inventory/devices.yaml` | Path to inventory YAML, or `netbox://host` URL |
+| `AUDNET_BASELINE` | `/app/baselines/security_baseline.yaml` | Path to baseline YAML |
+| `AUDNET_REPORTS` | `/app/reports` | Report output directory |
+| `AUDNET_HISTORY_DIR` | `/app/.net-audit` | History database directory |
+
+### Volume mounts
+
+```yaml
+volumes:
+  - ./inventories:/app/inventory:ro   # device inventory (read-only)
+  - ./baselines:/app/baselines:ro      # security baseline (read-only)
+  - ./reports:/app/reports            # audit reports (writable)
+  - audnet-history:/app/.net-audit     # history DB (persistent volume)
+```
+
+### Schedule examples
+
+```bash
+# Hourly (default)
+AUDIT_CRON="0 * * * *" docker compose up -d
+
+# Daily at 2am
+AUDIT_CRON="0 2 * * *" docker compose up -d
+
+# Every Monday at midnight
+AUDIT_CRON="0 0 * * 1" docker compose up -d
+
+# Every 6 hours
+AUDIT_CRON="0 */6 * * *" docker compose up -d
+```
+
+### One-shot audit
+
+Run a single audit and exit (no cron):
+
+```bash
+docker compose run --rm audnet once
+```
+
+Or override the command:
+
+```bash
+docker run --rm \
+  -v $(pwd)/inventories:/app/inventory:ro \
+  -v $(pwd)/baselines:/app/baselines:ro \
+  -v $(pwd)/reports:/app/reports \
+  ghcr.io/elshayib/audnet:latest once
+```
+
+### NetBox inventory
+
+Use a dynamic NetBox inventory instead of a static YAML file:
+
+```bash
+export NETBOX_TOKEN="your-netbox-token"
+docker compose run --rm -e AUDNET_INVENTORY="netbox://netbox.example.com?site=dc1&role=router" -e NETBOX_TOKEN audnet once
+```
+
+### Image size
+
+The image is built with a multi-stage Dockerfile and targets < 200MB:
+
+```bash
+ docker images ghcr.io/elshayib/audnet:latest
+# IMAGE          SIZE
+# audnet         ~150MB
+```
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes, new features, and bug fixes.
