@@ -1196,8 +1196,6 @@ class TestVtyTimeout:
     """Tests for the vty_timeout compliance check (CIS 2.1)."""
 
     def _snap(self, name, config_lines):
-        from audnet.compliance import run_checks
-        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
         return DeviceSnapshot(
             device_name=name,
             interfaces=ParsedInterfaces(interfaces=[]),
@@ -1276,8 +1274,6 @@ class TestAaaAuth:
     """Tests for the aaa_auth compliance check (NIST AC-2)."""
 
     def _snap(self, name, config_lines):
-        from audnet.compliance import run_checks
-        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
         return DeviceSnapshot(
             device_name=name,
             interfaces=ParsedInterfaces(interfaces=[]),
@@ -1338,8 +1334,6 @@ class TestPasswordEncryption:
     """Tests for the password_encryption compliance check (CIS 1.2)."""
 
     def _snap(self, name, config_lines):
-        from audnet.compliance import run_checks
-        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
         return DeviceSnapshot(
             device_name=name,
             interfaces=ParsedInterfaces(interfaces=[]),
@@ -1373,8 +1367,6 @@ class TestCdpDisabled:
     """Tests for the cdp_disabled compliance check (CIS 4.5)."""
 
     def _snap(self, name, config_lines, interfaces=None):
-        from audnet.compliance import run_checks
-        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
         return DeviceSnapshot(
             device_name=name,
             interfaces=ParsedInterfaces(interfaces=interfaces or []),
@@ -1442,8 +1434,6 @@ class TestLoginBanner:
     """Tests for the login_banner compliance check (CIS 1.3)."""
 
     def _snap(self, name, config_lines):
-        from audnet.compliance import run_checks
-        from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
         return DeviceSnapshot(
             device_name=name,
             interfaces=ParsedInterfaces(interfaces=[]),
