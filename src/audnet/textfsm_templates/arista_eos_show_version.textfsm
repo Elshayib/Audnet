@@ -1,0 +1,11 @@
+Value MODEL (\S+)
+Value SERIAL (\S+)
+Value IMAGE (\S+)
+Value UPTIME (.+)
+
+Start
+  ^Arista\s+${MODEL}
+  ^Serial\s+number:\s+${SERIAL}
+  ^Software\s+image\s+version:\s+${IMAGE}
+  ^Uptime:\s+${UPTIME} -> Record
+  ^.*$$
