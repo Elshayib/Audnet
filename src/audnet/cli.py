@@ -16,7 +16,7 @@ from audnet.compliance import run_checks
 from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
-from audnet.history import save_run, diff_runs
+from audnet.history import save_run, diff_runs, get_runs
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
@@ -275,6 +275,62 @@ def audit(
 
     if not no_fail and reports and not all(r.overall_pass for r in reports):
         raise typer.Exit(code=1)
+
+
+@app.command()
+def history(
+    device: str | None = typer.Option(None, "--device", help="Filter to a single device by name"),
+    last: int = typer.Option(20, "--last", help="Show last N runs"),
+    since: str | None = typer.Option(
+        None, "--since", help="Show runs from last N days/hours (e.g. 7d, 24h)"
+    ),
+    status: str | None = typer.Option(None, "--status", help="Filter by status: pass or fail"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Directory for the SQLite history DB (default: ~/.net-audit)",
+    ),
+) -> None:
+    """Query audit history from the SQLite store.
+
+    Shows past audit runs with optional filtering by device, time window, and status.
+    """
+    runs = get_runs(
+        device_name=device,
+        history_dir=history_dir,
+        limit=last,
+        since=since,
+        status=status,
+    )
+
+    if not runs:
+        console.print("[yellow]No history records found[/yellow]")
+        return
+
+    if format == "json":
+        console.print_json(json.dumps(runs))
+        return
+
+    table = Table(title="Audit History")
+    table.add_column("ID", style="dim")
+    table.add_column("Timestamp")
+    table.add_column("Device")
+    table.add_column("Status")
+    table.add_column("Checks", style="dim")
+    for run in runs:
+        status_str = "[green]PASS[/green]" if run["overall_pass"] else "[red]FAIL[/red]"
+        check_count = len(run.get("checks", []))
+        fail_count = sum(1 for c in run.get("checks", []) if not c.get("passed", True))
+        checks_str = f"{check_count - fail_count}/{check_count} passed"
+        table.add_row(
+            str(run["id"]),
+            run["run_at"],
+            run["device_name"],
+            status_str,
+            checks_str,
+        )
+    console.print(table)
 
 
 @app.command(name="list-vendors")

@@ -98,8 +98,17 @@ def get_runs(
     device_name: str | None = None,
     history_dir: Path | None = None,
     limit: int = 100,
+    since: str | None = None,
+    status: str | None = None,
 ) -> list[dict[str, Any]]:
     """Query historical audit runs.
+
+    Args:
+        device_name: Filter to a single device.
+        history_dir: Directory containing history.db.
+        limit: Maximum number of rows to return.
+        since: Time window like "7d", "30d", "24h".
+        status: Filter by "pass" or "fail".
 
     Returns a list of dicts with keys: id, run_at, device_name, overall_pass, checks.
     """
@@ -108,18 +117,34 @@ def get_runs(
     db_file = _db_path(history_dir)
     if not db_file.exists():
         return []
+
+    # Build query
+    where_parts: list[str] = []
+    params: list[Any] = []
+    if device_name:
+        where_parts.append("device_name = ?")
+        params.append(device_name)
+    if status == "pass":
+        where_parts.append("overall_pass = 1")
+    elif status == "fail":
+        where_parts.append("overall_pass = 0")
+    if since:
+        delta = _parse_duration(since)
+        cutoff = datetime.now(timezone.utc) - delta
+        where_parts.append("run_at >= ?")
+        params.append(cutoff.isoformat())
+
+    where_clause = ""
+    if where_parts:
+        where_clause = "WHERE " + " AND ".join(where_parts)
+
+    query = f"SELECT * FROM runs {where_clause} ORDER BY id DESC LIMIT ?"  # nosec B608
+    params.append(limit)
+
     with sqlite3.connect(db_file) as conn:
         conn.row_factory = sqlite3.Row
-        if device_name:
-            rows = conn.execute(
-                "SELECT * FROM runs WHERE device_name = ? ORDER BY id DESC LIMIT ?",
-                (device_name, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM runs ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(query, params).fetchall()
+
     result = []
     for row in rows:
         result.append(
@@ -132,6 +157,21 @@ def get_runs(
             }
         )
     return result
+
+
+def _parse_duration(since: str) -> Any:
+    """Parse a duration string like '7d', '30d', '24h' into a timedelta."""
+    from datetime import timedelta
+
+    since = since.strip().lower()
+    if since.endswith("d"):
+        return timedelta(days=int(since[:-1]))
+    elif since.endswith("h"):
+        return timedelta(hours=int(since[:-1]))
+    elif since.endswith("w"):
+        return timedelta(weeks=int(since[:-1]))
+    else:
+        raise ValueError(f"Invalid duration '{since}'. Use Nd (days), Nh (hours), or Nw (weeks).")
 
 
 def get_last_runs(
