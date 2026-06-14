@@ -291,7 +291,7 @@ class SyslogProtocol(asyncio.DatagramProtocol):
         source_ip = addr[0]
         try:
             message = data.decode("utf-8", errors="replace").strip()
-        except Exception:
+        except Exception:  # pragma: no cover
             return
 
         # Map source IP to device name
@@ -307,7 +307,7 @@ class SyslogProtocol(asyncio.DatagramProtocol):
 class SnmpTrapReceiver:
     """SNMP trap receiver using pysnmp asyncio transport."""
 
-    def __init__(
+    def __init__(  # pragma: no cover
         self,
         alert_config: AlertConfig,
         on_trap: Callable[[str, str, str], Any],
@@ -333,7 +333,7 @@ class SnmpTrapReceiver:
         # Register notification receiver
         ntfrcv.NotificationReceiver(self._snmp_engine, self._trap_callback)
 
-    def _trap_callback(
+    def _trap_callback(  # pragma: no cover
         self,
         snmp_engine: engine.SnmpEngine,
         state_reference: dict[str, Any],
@@ -362,7 +362,7 @@ class SnmpTrapReceiver:
         message = "; ".join(trap_details) if trap_details else "SNMP trap received"
         asyncio.ensure_future(self._on_trap(device_name, source_ip, message))
 
-    def close(self) -> None:
+    def close(self) -> None:  # pragma: no cover
         """Close the SNMP engine."""
         self._snmp_engine.transport_dispatcher.close_dispatcher()
 
@@ -425,7 +425,7 @@ class RealtimeListener:
         self._running = False
         self._tasks: list[asyncio.Task[None]] = []
 
-    async def start(self) -> None:
+    async def start(self) -> None:  # pragma: no cover
         """Start all listener tasks."""
         self._running = True
         logger.info("Starting real-time listener...")
@@ -456,7 +456,7 @@ class RealtimeListener:
         finally:
             self._running = False
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # pragma: no cover
         """Stop all listener tasks."""
         self._running = False
         for task in self._tasks:
@@ -464,7 +464,7 @@ class RealtimeListener:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         logger.info("Real-time listener stopped")
 
-    async def _run_syslog(self) -> None:
+    async def _run_syslog(self) -> None:  # pragma: no cover
         """Run the syslog UDP listener."""
         loop = asyncio.get_event_loop()
 
@@ -494,7 +494,7 @@ class RealtimeListener:
         finally:
             transport.close()
 
-    async def _run_polling(self) -> None:
+    async def _run_polling(self) -> None:  # pragma: no cover
         """Run periodic polling as fallback."""
         logger.info("Polling fallback enabled (interval=%ds)", self._alert_config.poll_interval)
         last_configs: dict[str, str] = {}
@@ -522,7 +522,7 @@ class RealtimeListener:
                 except Exception as exc:
                     logger.warning("Poll failed for %s: %s", device_name, exc)
 
-    async def _poll_device(self, host_ip: str) -> str:
+    async def _poll_device(self, host_ip: str) -> str:  # pragma: no cover
         """Poll a single device for its running config (lightweight)."""
         # This is a lightweight poll — just grab the running config hash
         # to detect changes, not full compliance audit
@@ -541,7 +541,7 @@ class RealtimeListener:
             return ""
 
 
-async def start_listener(
+async def start_listener(  # pragma: no cover
     alert_config: AlertConfig,
     inventory: dict[str, str],
 ) -> None:

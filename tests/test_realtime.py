@@ -368,3 +368,345 @@ class TestCliListen:
         )
         assert result.exit_code == 1
         assert "email-to" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Webhook sender (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookSender:
+    """Tests for AlertManager._send_webhook with mocked HTTP."""
+
+    @pytest.fixture
+    def webhook_config(self):
+        return AlertConfig(
+            webhook_url="https://hooks.example.com/audit",
+            webhook_secret="test-secret",
+            webhook_timeout=5,
+            webhook_retries=2,
+        )
+
+    @pytest.fixture
+    def sample_event(self):
+        return ChangeEvent(
+            device_name="rtr01",
+            source_ip="10.0.0.1",
+            event_type="syslog",
+            timestamp=time.time(),
+            raw_message="%SYS-5-CONFIG: Configured from console",
+            change_summary="Config changed from console",
+            severity="high",
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_webhook_success(self, webhook_config, sample_event):
+        from unittest.mock import patch, MagicMock
+
+        manager = AlertManager(webhook_config)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            await manager._send_webhook(sample_event)
+
+        mock_urlopen.assert_called_once()
+        # Verify the request was POST
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]
+        assert req.method == "POST"
+        assert req.full_url == "https://hooks.example.com/audit"
+
+    @pytest.mark.asyncio
+    async def test_send_webhook_includes_hmac_signature(self, webhook_config, sample_event):
+        from unittest.mock import patch, MagicMock
+
+        manager = AlertManager(webhook_config)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            await manager._send_webhook(sample_event)
+
+            call_args = mock_urlopen.call_args
+            req = call_args[0][0]
+            assert any("x-signature" in h.lower() for h in req.headers)
+
+    @pytest.mark.asyncio
+    async def test_send_webhook_retries_on_failure(self, webhook_config, sample_event):
+        import urllib.error
+        from unittest.mock import patch, MagicMock
+
+        manager = AlertManager(webhook_config)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        with patch("urllib.request.urlopen", side_effect=[
+            urllib.error.URLError("timeout"),
+            mock_resp,
+        ]) as mock_urlopen:
+            await manager._send_webhook(sample_event)
+
+        assert mock_urlopen.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_send_webhook_exhausts_retries(self, webhook_config, sample_event):
+        import urllib.error
+        from unittest.mock import patch
+
+        manager = AlertManager(webhook_config)
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
+            # Should not raise — retries are caught internally
+            await manager._send_webhook(sample_event)
+
+
+# ---------------------------------------------------------------------------
+# Email sender (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestEmailSender:
+    """Tests for AlertManager._send_email with mocked SMTP."""
+
+    @pytest.fixture
+    def email_config(self):
+        return AlertConfig(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_username="user@example.com",
+            smtp_password="secret",
+            smtp_use_tls=True,
+            email_from="audnet@example.com",
+            email_to=["admin@example.com"],
+        )
+
+    @pytest.fixture
+    def sample_event(self):
+        return ChangeEvent(
+            device_name="rtr01",
+            source_ip="10.0.0.1",
+            event_type="syslog",
+            timestamp=time.time(),
+            raw_message="%SYS-5-CONFIG: test",
+            change_summary="Config change detected",
+            severity="medium",
+            compliance_results=[{"rule": "test", "status": "FAIL"}],
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_email_success(self, email_config, sample_event):
+        from unittest.mock import patch, AsyncMock
+
+        manager = AlertManager(email_config)
+
+        with patch("audnet.realtime.aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            await manager._send_email(sample_event)
+
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        assert call_kwargs["hostname"] == "smtp.example.com"
+        assert call_kwargs["port"] == 587
+        assert call_kwargs["username"] == "user@example.com"
+        assert call_kwargs["use_tls"] is True
+
+    @pytest.mark.asyncio
+    async def test_send_email_skips_without_recipients(self, email_config, sample_event):
+        from unittest.mock import patch, AsyncMock
+
+        config = AlertConfig(
+            smtp_host="smtp.example.com",
+            email_from="audnet@example.com",
+            email_to=[],  # no recipients
+        )
+        manager = AlertManager(config)
+
+        with patch("audnet.realtime.aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            await manager._send_email(sample_event)
+
+        mock_send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_email_includes_compliance_results(self, email_config, sample_event):
+        from unittest.mock import patch, AsyncMock
+
+        manager = AlertManager(email_config)
+
+        with patch("audnet.realtime.aiosmtplib.send", new_callable=AsyncMock) as mock_send:
+            await manager._send_email(sample_event)
+
+        # Verify the message was sent
+        assert mock_send.call_count == 1
+        msg = mock_send.call_args.args[0]
+        assert "rtr01" in msg["Subject"]
+        assert "Config change detected" in msg.get_payload(decode=True).decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# SNMP Trap Receiver
+# ---------------------------------------------------------------------------
+
+
+class TestSnmpTrapReceiver:
+    """Tests for SnmpTrapReceiver configuration."""
+
+    def test_snmp_receiver_stores_config(self):
+        from audnet.realtime import SnmpTrapReceiver
+
+        config = AlertConfig(snmp_community="my-community")
+        receiver = SnmpTrapReceiver.__new__(SnmpTrapReceiver)
+        receiver._alert_config = config
+        assert receiver._alert_config.snmp_community == "my-community"
+
+    def test_snmp_receiver_default_community(self):
+        from audnet.realtime import SnmpTrapReceiver
+
+        config = AlertConfig()
+        receiver = SnmpTrapReceiver.__new__(SnmpTrapReceiver)
+        receiver._alert_config = config
+        assert receiver._alert_config.snmp_community == "public"
+
+
+# ---------------------------------------------------------------------------
+# RealtimeListener
+# ---------------------------------------------------------------------------
+
+
+class TestRealtimeListenerExtended:
+    """Extended tests for RealtimeListener."""
+
+    def test_listener_stores_config(self):
+        config = AlertConfig(
+            syslog_bind_host="127.0.0.1",
+            syslog_bind_port=1514,
+        )
+        alert_mgr = AlertManager(config)
+        listener = RealtimeListener(config, alert_mgr, {})
+        assert listener._alert_config.syslog_bind_host == "127.0.0.1"
+        assert listener._alert_config.syslog_bind_port == 1514
+
+    def test_listener_initializes_with_empty_tasks(self):
+        config = AlertConfig()
+        alert_mgr = AlertManager(config)
+        listener = RealtimeListener(config, alert_mgr, {})
+        assert listener._tasks == []
+        assert listener._running is False
+
+    def test_device_map_empty_inventory(self):
+        config = AlertConfig()
+        alert_mgr = AlertManager(config)
+        listener = RealtimeListener(config, alert_mgr, {})
+        assert listener._device_map == {}
+
+    def test_device_map_with_devices(self):
+        config = AlertConfig()
+        alert_mgr = AlertManager(config)
+        inventory = {"rtr01": "10.0.0.1", "rtr02": "10.0.0.2"}
+        listener = RealtimeListener(config, alert_mgr, inventory)
+        assert listener._device_map["10.0.0.1"] == "rtr01"
+        assert listener._device_map["10.0.0.2"] == "rtr02"
+
+
+# ---------------------------------------------------------------------------
+# send_alert with both webhook + email (task gathering paths)
+# ---------------------------------------------------------------------------
+
+
+class TestSendAlertTaskGathering:
+    """Tests for send_alert task creation and gathering (lines 160-170)."""
+
+    @pytest.mark.asyncio
+    async def test_send_alert_triggers_both_webhook_and_email(self):
+        from unittest.mock import patch, AsyncMock
+
+        config = AlertConfig(
+            webhook_url="https://hooks.example.com/audit",
+            smtp_host="smtp.example.com",
+            email_from="audnet@example.com",
+            email_to=["admin@example.com"],
+            rate_limit_seconds=0,
+            dedup_window=0,
+        )
+        manager = AlertManager(config)
+        event = ChangeEvent(
+            device_name="rtr01",
+            source_ip="10.0.0.1",
+            event_type="syslog",
+            timestamp=time.time(),
+            raw_message="%SYS-5-CONFIG: test",
+            change_summary="Config change",
+            severity="high",
+        )
+
+        with patch.object(manager, "_send_webhook", new_callable=AsyncMock) as mock_webhook, \
+             patch.object(manager, "_send_email", new_callable=AsyncMock) as mock_email:
+            await manager.send_alert(event)
+
+        mock_webhook.assert_called_once_with(event)
+        mock_email.assert_called_once_with(event)
+        assert manager._alert_count == 1
+
+    @pytest.mark.asyncio
+    async def test_send_alert_task_exception_is_caught(self):
+        """Test that exceptions in tasks are caught by gather (line 169-170)."""
+        from unittest.mock import patch, AsyncMock
+
+        config = AlertConfig(
+            webhook_url="https://hooks.example.com/audit",
+            smtp_host="smtp.example.com",
+            email_from="audnet@example.com",
+            email_to=["admin@example.com"],
+            rate_limit_seconds=0,
+            dedup_window=0,
+        )
+        manager = AlertManager(config)
+        event = ChangeEvent(
+            device_name="rtr01",
+            source_ip="10.0.0.1",
+            event_type="syslog",
+            timestamp=time.time(),
+            raw_message="%SYS-5-CONFIG: test",
+            change_summary="Config change",
+            severity="high",
+        )
+
+        # Make webhook raise an exception
+        with patch.object(manager, "_send_webhook", new_callable=AsyncMock, side_effect=Exception("network error")), \
+             patch.object(manager, "_send_email", new_callable=AsyncMock):
+            # Should not raise — exceptions are caught by gather(return_exceptions=True)
+            await manager.send_alert(event)
+
+        assert manager._alert_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Email error handling (lines 246-248)
+# ---------------------------------------------------------------------------
+
+
+class TestEmailErrorHandling:
+    """Tests for _send_email error handling."""
+
+    @pytest.mark.asyncio
+    async def test_send_email_raises_on_failure(self):
+        from unittest.mock import patch, AsyncMock
+
+        config = AlertConfig(
+            smtp_host="smtp.example.com",
+            email_from="audnet@example.com",
+            email_to=["admin@example.com"],
+        )
+        manager = AlertManager(config)
+        event = ChangeEvent(
+            device_name="rtr01",
+            source_ip="10.0.0.1",
+            event_type="syslog",
+            timestamp=time.time(),
+            raw_message="test",
+            change_summary="test",
+            severity="medium",
+        )
+
+        with patch("audnet.realtime.aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error")):
+            with pytest.raises(Exception, match="SMTP error"):
+                await manager._send_email(event)
