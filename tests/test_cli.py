@@ -1262,3 +1262,280 @@ class TestCliTimeout:
         _ansi = re.compile(r"\x1b\[[0-9;]*m")
         clean = _ansi.sub("", result.output)
         assert "--timeout" in clean
+
+
+class TestCliRemediate:
+    """Tests for the ``audnet remediate`` CLI subcommand."""
+
+    @patch("audnet.cli.load_inventory")
+    @patch("audnet.remediate.apply_config")
+    def test_dry_run_default(self, mock_apply, mock_inv, tmp_path):
+        """Without --no-dry-run the command defaults to dry_run=True."""
+        from audnet.remediate import RemediationStatus
+        from audnet.models import Device
+
+        mock_inv.return_value = (
+            {},
+            [Device(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_apply.return_value = MagicMock(
+            device_name="rtr01",
+            status=RemediationStatus.DRY_RUN,
+            diff=MagicMock(added_lines=["ntp server 1.1.1.1"], removed_lines=[]),
+            rolled_back=False,
+            error=None,
+            duration_seconds=0.1,
+        )
+
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+            ],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_apply.assert_called_once()
+        _, kwargs = mock_apply.call_args
+        assert kwargs["dry_run"] is True
+
+    @patch("audnet.cli.load_inventory")
+    @patch("audnet.remediate.apply_config")
+    def test_no_dry_run_flag(self, mock_apply, mock_inv, tmp_path):
+        """--no-dry-run sets dry_run=False and passes to apply_config."""
+        from audnet.models import Device
+
+        mock_inv.return_value = (
+            {},
+            [Device(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_apply.return_value = MagicMock(
+            device_name="rtr01",
+            status=MagicMock(value="success"),
+            diff=MagicMock(added_lines=["ntp server 1.1.1.1"], removed_lines=[]),
+            rolled_back=False,
+            error=None,
+            duration_seconds=0.1,
+        )
+
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+                "--no-dry-run",
+                "--auto-approve",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        _, kwargs = mock_apply.call_args
+        assert kwargs["dry_run"] is False
+
+    @patch("audnet.cli.load_inventory")
+    def test_inventory_not_found(self, mock_inv, tmp_path):
+        """Missing inventory file exits with code 1 and clear error."""
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(tmp_path / "nope.yaml"),
+                "--config", str(cfg),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Inventory file not found" in result.output
+
+    @patch("audnet.cli.load_inventory")
+    def test_config_not_found(self, mock_inv, tmp_path):
+        """Missing config snippet file exits with code 1 and clear error."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        inv = _write_inventory(tmp_path)
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(tmp_path / "nope.txt"),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Config file not found" in result.output
+
+    @patch("audnet.cli.load_inventory")
+    @patch("audnet.remediate.apply_config")
+    def test_device_filter(self, mock_apply, mock_inv, tmp_path):
+        """--device filters to named devices only."""
+        from audnet.models import Device
+
+        dev1 = Device(name="rtr01", host="10.0.0.1", username="admin", password="x")
+        dev2 = Device(name="rtr02", host="10.0.0.2", username="admin", password="x")
+        mock_inv.return_value = ({}, [dev1, dev2])
+        mock_apply.return_value = MagicMock(
+            device_name="rtr01",
+            status=MagicMock(value="dry_run"),
+            diff=MagicMock(added_lines=[], removed_lines=[]),
+            rolled_back=False,
+            error=None,
+            duration_seconds=0.1,
+        )
+
+        inv = _write_inventory(tmp_path, devices=[
+            {"name": "rtr01", "host": "10.0.0.1", "username": "admin", "password": "x"},
+            {"name": "rtr02", "host": "10.0.0.2", "username": "admin", "password": "x"},
+        ])
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+                "--device", "rtr01",
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        mock_apply.assert_called_once()
+        device_arg = mock_apply.call_args[0][0]
+        assert device_arg.name == "rtr01"
+
+    @patch("audnet.cli.load_inventory")
+    def test_device_not_in_inventory(self, mock_inv, tmp_path):
+        """--device with missing name exits with code 1."""
+        mock_inv.return_value = (
+            {},
+            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+                "--device", "sw99",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "sw99" in result.output
+
+    @patch("audnet.cli.load_inventory")
+    def test_no_devices(self, mock_inv, tmp_path):
+        """Empty device list exits with code 1."""
+        mock_inv.return_value = ({}, [])
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "No devices to remediate" in result.output
+
+    @patch("audnet.cli.load_inventory")
+    @patch("audnet.remediate.apply_config")
+    def test_result_table_output(self, mock_apply, mock_inv, tmp_path):
+        """Successful remediation prints result table with device name and status."""
+        from audnet.models import Device
+
+        mock_inv.return_value = (
+            {},
+            [Device(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_apply.return_value = MagicMock(
+            device_name="rtr01",
+            status=MagicMock(value="dry_run"),
+            diff=MagicMock(added_lines=["ntp server 1.1.1.1"], removed_lines=[]),
+            rolled_back=False,
+            error=None,
+            duration_seconds=0.1,
+        )
+
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        assert "rtr01" in result.output
+
+    @patch("audnet.cli.load_inventory")
+    @patch("audnet.remediate.apply_config")
+    def test_failure_exits_nonzero(self, mock_apply, mock_inv, tmp_path):
+        """If any device fails the command exits with code 1."""
+        from audnet.models import Device
+        from audnet.remediate import RemediationStatus
+
+        mock_inv.return_value = (
+            {},
+            [Device(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+        )
+        mock_apply.return_value = MagicMock(
+            device_name="rtr01",
+            status=RemediationStatus.FAILED,
+            diff=MagicMock(added_lines=[], removed_lines=[]),
+            rolled_back=False,
+            error="connection refused",
+            duration_seconds=0.1,
+        )
+
+        inv = _write_inventory(tmp_path)
+        cfg = tmp_path / "snippet.txt"
+        cfg.write_text("ntp server 1.1.1.1\n")
+
+        result = runner.invoke(
+            app,
+            [
+                "remediate",
+                "--inventory", str(inv),
+                "--config", str(cfg),
+            ],
+        )
+        assert result.exit_code == 1, f"Output: {result.output}"
+
+    def test_help_output(self):
+        """``remediate --help`` exits 0 and shows expected options."""
+        import re
+        result = runner.invoke(app, ["remediate", "--help"])
+        assert result.exit_code == 0
+        _ansi = re.compile(r"\x1b\[[0-9;]*m")
+        clean = _ansi.sub("", result.output)
+        assert "--config" in clean
+        assert "--inventory" in clean
+        assert "--dry-run" in clean
+        assert "--no-dry-run" in clean

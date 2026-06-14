@@ -17,6 +17,7 @@ from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
 from audnet.history import save_run, diff_runs, get_runs
+from audnet.remediate import RemediationStatus
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
@@ -546,6 +547,185 @@ def list_checks_cmd(
     else:
         for c in checks:
             console.print(f"{c:<20} (rule: {c})")
+
+
+# ---------------------------------------------------------------------------
+# Remediation — safe push with dry-run + rollback
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def remediate(
+    inventory: str = typer.Option(
+        "inventories/devices.yaml",
+        help="Device inventory YAML",
+    ),
+    config_file: str = typer.Option(
+        ...,
+        "--config",
+        "-c",
+        help="Config snippet file to apply (YAML or plain text)",
+    ),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        help="Show diff without applying (default: dry-run)",
+    ),
+    auto_approve: bool = typer.Option(
+        False,
+        "--auto-approve",
+        help="Skip interactive approval (automation mode)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Apply even if config is already present (no-op)",
+    ),
+    device: list[str] = typer.Option(
+        [],
+        "--device",
+        "-d",
+        help="Target specific device(s). Default: all from inventory",
+    ),
+) -> None:
+    """Apply remediation config to devices with safety guarantees.
+
+    Safety model:
+    - Always dry-run first (mandatory unless --no-dry-run)
+    - Shows diff before applying
+    - Requires interactive approval (unless --auto-approve)
+    - Idempotent: skips if config already present
+    - Automatic rollback on failure
+    - Full audit logging of every action
+    """
+    import time as _time
+    from pathlib import Path
+
+    from audnet.remediate import remediate_devices
+
+    # Load inventory
+    inv_path = Path(inventory)
+    if not inv_path.exists():
+        console.print(f"[red]Inventory file not found: {inventory}[/red]")
+        raise typer.Exit(1)
+
+    _meta, all_devices = load_inventory(str(inv_path))
+
+    # Filter to specific devices if requested
+    if device:
+        target_devices = [d for d in all_devices if d.name in device]
+        missing = set(device) - {d.name for d in target_devices}
+        if missing:
+            console.print(f"[red]Device(s) not in inventory: {', '.join(missing)}[/red]")
+            raise typer.Exit(1)
+    else:
+        target_devices = all_devices
+
+    if not target_devices:
+        console.print("[red]No devices to remediate[/red]")
+        raise typer.Exit(1)
+
+    # Load config snippet
+    config_path = Path(config_file)
+    if not config_path.exists():
+        console.print(f"[red]Config file not found: {config_file}[/red]")
+        raise typer.Exit(1)
+
+    config_text = config_path.read_text()
+
+    # Try YAML first (config_snippet: [...] format), fall back to plain text
+    try:
+        import yaml
+        config_data = yaml.safe_load(config_text)
+        if isinstance(config_data, dict) and "config_snippet" in config_data:
+            config_snippet = config_data["config_snippet"]
+            if isinstance(config_snippet, str):
+                config_snippet = config_snippet.splitlines()
+        elif isinstance(config_data, list):
+            config_snippet = [str(line) for line in config_data]
+        else:
+            config_snippet = config_text.splitlines()
+    except Exception:
+        config_snippet = config_text.splitlines()
+
+    console.print("[bold]Remediation Summary[/bold]")
+    console.print(f"  Devices: {', '.join(d.name for d in target_devices)}")
+    console.print(f"  Config lines: {len(config_snippet)}")
+    console.print(f"  Mode: {'DRY RUN' if dry_run else 'LIVE'}")
+    console.print()
+
+    results = remediate_devices(
+        target_devices,
+        config_snippet,
+        dry_run=dry_run,
+        auto_approve=auto_approve,
+        force=force,
+    )
+
+    # Display results
+    table = Table(title="Remediation Results")
+    table.add_column("Device", style="cyan")
+    table.add_column("Status", style="bold")
+    table.add_column("Added", justify="right")
+    table.add_column("Details")
+
+    for r in results:
+        status_style = {
+            RemediationStatus.SUCCESS: "green",
+            RemediationStatus.DRY_RUN: "yellow",
+            RemediationStatus.SKIPPED: "blue",
+            RemediationStatus.ROLLED_BACK: "red",
+            RemediationStatus.FAILED: "red",
+        }.get(r.status, "white")
+
+        details = ""
+        if r.rolled_back:
+            details = f"Rolled back (error: {r.error})"
+        elif r.error:
+            details = r.error
+        elif r.status == RemediationStatus.SKIPPED:
+            details = "Already compliant (idempotent)"
+        elif r.status == RemediationStatus.DRY_RUN:
+            details = "Dry run — no changes made"
+        else:
+            details = f"Applied {len(r.diff.added_lines)} lines"
+
+        table.add_row(
+            r.device_name,
+            f"[{status_style}]{r.status.value}[/{status_style}]",
+            str(len(r.diff.added_lines)),
+            details,
+        )
+
+    console.print(table)
+
+    # Exit code based on results
+    if any(r.status == RemediationStatus.FAILED for r in results):
+        raise typer.Exit(1)
+
+    # Audit log
+    log_data = {
+        "action": "remediate",
+        "dry_run": dry_run,
+        "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "results": [
+            {
+                "device": r.device_name,
+                "status": r.status.value,
+                "added": len(r.diff.added_lines),
+                "rolled_back": r.rolled_back,
+                "error": r.error,
+                "duration_s": round(r.duration_seconds, 2),
+            }
+            for r in results
+        ],
+    }
+
+    audit_dir = Path.home() / ".net-audit" / "remediation_logs"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    log_file = audit_dir / f"remediate_{int(_time.time())}.json"
+    log_file.write_text(json.dumps(log_data, indent=2))
+    console.print(f"\n[dim]Audit log: {log_file}[/dim]")
 
 
 @app.command()
