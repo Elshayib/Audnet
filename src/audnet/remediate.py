@@ -409,10 +409,8 @@ def apply_config(
     finally:
         try:
             conn.disconnect()
-        except Exception:  # pragma: no cover
+        except Exception:  # pragma: no cover  # nosec B110
             pass
-
-
 def _rollback_config(conn: Any, previous_config: str) -> str:
     """Attempt to rollback to a previous config.
 
@@ -443,7 +441,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
         # Clean up rollback file
         try:  # pragma: no cover
             conn.send_command(f"delete flash:{rollback_file}")
-        except Exception:  # pragma: no cover
+        except Exception:  # pragma: no cover  # nosec B110
             pass
         return str(output)
     except Exception as exc:  # pragma: no cover
