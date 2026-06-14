@@ -233,3 +233,117 @@ def register_vendor(
 def list_vendors() -> list[str]:
     """Return all registered vendor device types."""
     return sorted(VENDOR_PROFILES.keys())
+
+
+# ---------------------------------------------------------------------------
+# Auto-detection
+# ---------------------------------------------------------------------------
+
+# SNMP sysDesCR OID
+_SYS_DESCR_OID = "1.3.6.1.2.1.1.1.0"
+
+# Mapping of vendor identifiers (case-insensitive) to device types.
+# Ordered by specificity — more specific patterns first.
+_DETECTION_RULES: list[tuple[str, str]] = [
+    # (substring to match in sysDescr/banner, device_type)
+    ("FortiOS", "fortinet_fortios"),
+    ("FortiGate", "fortinet_fortios"),
+    ("ArubaOS-CX", "aruba_os"),
+    ("Aruba", "aruba_os"),
+    ("ProCurve", "hp_procurve"),
+    ("HP J", "hp_procurve"),
+    ("JUNOS", "juniper_junos"),
+    ("Juniper", "juniper_junos"),
+    ("NX-OS", "cisco_nxos"),
+    ("cisco_nxos", "cisco_nxos"),
+    ("Arista", "arista_eos"),
+    ("EOS", "arista_eos"),
+    ("PAN-OS", "paloalto_panos"),
+    ("Palo Alto", "paloalto_panos"),
+    ("Cisco IOS", "cisco_ios"),
+    ("Cisco Internetwork Operating System", "cisco_ios"),
+]
+
+
+def detect_vendor(sys_descr: str) -> str:
+    """Detect vendor device_type from SNMP sysDescr or SSH banner string.
+
+    Args:
+        sys_descr: The SNMP sysDescr value or SSH banner text.
+
+    Returns:
+        Device type string. Falls back to 'cisco_ios' if no match.
+    """
+    text = sys_descr.strip()
+    for pattern, device_type in _DETECTION_RULES:
+        if pattern.lower() in text.lower():
+            logger.info(
+                "Detected vendor '%s' from sysDescr match: '%s'", device_type, pattern
+            )
+            return device_type
+    logger.warning(
+        "Could not detect vendor from sysDescr, falling back to '%s'", _DEFAULT_VENDOR
+    )
+    return _DEFAULT_VENDOR
+
+
+async def detect_vendor_snmp(
+    host: str,
+    community: str = "public",
+    port: int = 161,
+    timeout: int = 5,
+) -> str:
+    """Detect vendor via SNMP sysDescr query.
+
+    Args:
+        host: Target device IP/hostname.
+        community: SNMP community string.
+        port: SNMP port.
+        timeout: Query timeout in seconds.
+
+    Returns:
+        Device type string. Falls back to 'cisco_ios' on failure.
+    """
+    try:
+        from pysnmp.hlapi.asyncio import (
+            CommunityData,
+            ContextData,
+            ObjectIdentity,
+            ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            getCmd,
+        )
+    except ImportError:
+        logger.warning(
+            "pysnmp not available for SNMP detection, falling back to '%s'",
+            _DEFAULT_VENDOR,
+        )
+        return _DEFAULT_VENDOR
+
+    try:
+        iterator = getCmd(
+            SnmpEngine(),
+            CommunityData(community),
+            UdpTransportTarget((host, port), timeout=timeout, retries=1),
+            ContextData(),
+            ObjectType(ObjectIdentity(_SYS_DESCR_OID)),
+        )
+        error_indication, error_status, error_index, var_binds = await iterator
+
+        if error_indication or error_status:
+            logger.warning(
+                "SNMP detection failed for %s: %s",
+                host,
+                error_indication or error_status,
+            )
+            return _DEFAULT_VENDOR
+
+        for var_bind in var_binds:
+            sys_descr = str(var_bind[1])
+            return detect_vendor(sys_descr)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SNMP detection error for %s: %s", host, exc)
+        return _DEFAULT_VENDOR
+
+    return _DEFAULT_VENDOR
