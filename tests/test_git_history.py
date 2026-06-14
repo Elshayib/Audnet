@@ -1,15 +1,11 @@
 """Tests for Git-backed config history."""
 
-import re
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from audnet.exceptions import GitHistoryError
 from audnet.git_history import (
-    _DEFAULT_GIT_DIR,
-    _SENSITIVE_LINE_RE,
     diff_configs,
     get_config_at,
     get_config_history,
@@ -110,7 +106,7 @@ class TestSanitizeConfig:
 class TestInitGitRepo:
     def test_creates_new_repo(self, tmp_path: Path):
         repo_path = tmp_path / "git-repo"
-        repo = init_git_repo(repo_path)
+        init_git_repo(repo_path)
         assert repo_path.exists()
         assert (repo_path / ".git").exists()
 
@@ -127,7 +123,7 @@ class TestInitGitRepo:
 
     def test_sets_user_config(self, tmp_path: Path):
         repo_path = tmp_path / "git-repo"
-        repo = init_git_repo(repo_path)
+        init_git_repo(repo_path)
         # The repo-local .git/config should have audnet user config
         git_config = repo_path / ".git" / "config"
         config_text = git_config.read_text()
@@ -378,7 +374,7 @@ class TestRollbackConfig:
         repo_path = tmp_path / "git-repo"
         save_config_snapshot({"rtr01": "hostname old\n"}, history_dir=repo_path)
         save_config_snapshot({"rtr01": "hostname new\n"}, history_dir=repo_path)
-        result = rollback_config("rtr01", "HEAD~1", history_dir=repo_path, dry_run=False)
+        rollback_config("rtr01", "HEAD~1", history_dir=repo_path, dry_run=False)
         repo = init_git_repo(repo_path)
         head_msg = repo.head.commit.message
         assert "rollback" in head_msg.lower()
