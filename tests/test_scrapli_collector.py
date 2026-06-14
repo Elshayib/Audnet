@@ -64,6 +64,102 @@ class TestScrapliCollectorImport:
     def test_import_succeeds_with_scrapli_installed(self):
         from audnet.scrapli_collector import collect_all_scrapli, collect_device_scrapli  # noqa: F401
 
+    def test_import_succeeds_without_scrapli(self):
+        """Module imports cleanly when scrapli is not installed.
+
+        Regression test for #134: _RETRYABLE_EXCEPTIONS and
+        _SCRAPLI_DRIVER_MAP referenced scrapli names at module level
+        outside the try/except, causing NameError at import time.
+        """
+        import importlib
+        import sys
+        import builtins as _builtins
+
+        # Remove cached modules so we re-import from scratch
+        for key in list(sys.modules):
+            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
+                del sys.modules[key]
+
+        _real_import = _builtins.__import__
+
+        def _blocked_import(name, *args, **kwargs):
+            if name == "scrapli" or name.startswith("scrapli."):
+                raise ImportError("scrapli not available (test)")
+            return _real_import(name, *args, **kwargs)
+
+        _builtins.__import__ = _blocked_import
+        try:
+            mod = importlib.import_module("audnet.scrapli_collector")
+            assert mod._SCRAPLI_AVAILABLE is False
+            assert mod._RETRYABLE_EXCEPTIONS == ()
+            assert mod._SCRAPLI_DRIVER_MAP == {}
+        finally:
+            _builtins.__import__ = _real_import
+            # Restore cached state
+            for key in list(sys.modules):
+                if key == "audnet.scrapli_collector":
+                    del sys.modules[key]
+
+    def test_check_scrapli_available_raises_without_scrapli(self):
+        """_check_scrapli_available raises ImportError when scrapli is missing."""
+        import sys
+        import builtins as _builtins
+
+        for key in list(sys.modules):
+            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
+                del sys.modules[key]
+
+        _real_import = _builtins.__import__
+
+        def _blocked_import(name, *args, **kwargs):
+            if name == "scrapli" or name.startswith("scrapli."):
+                raise ImportError("scrapli not available (test)")
+            return _real_import(name, *args, **kwargs)
+
+        _builtins.__import__ = _blocked_import
+        try:
+            from audnet.scrapli_collector import _check_scrapli_available
+
+            try:
+                _check_scrapli_available()
+                assert False, "Expected ImportError"
+            except ImportError as e:
+                assert "scrapli is required" in str(e)
+        finally:
+            _builtins.__import__ = _real_import
+            for key in list(sys.modules):
+                if key == "audnet.scrapli_collector":
+                    del sys.modules[key]
+
+    def test_is_retryable_returns_false_without_scrapli(self):
+        """_is_retryable returns False when scrapli is not installed."""
+        import sys
+        import builtins as _builtins
+
+        for key in list(sys.modules):
+            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
+                del sys.modules[key]
+
+        _real_import = _builtins.__import__
+
+        def _blocked_import(name, *args, **kwargs):
+            if name == "scrapli" or name.startswith("scrapli."):
+                raise ImportError("scrapli not available (test)")
+            return _real_import(name, *args, **kwargs)
+
+        _builtins.__import__ = _blocked_import
+        try:
+            from audnet.scrapli_collector import _is_retryable
+
+            # Should return False for any exception when scrapli is unavailable
+            assert _is_retryable(Exception("test")) is False
+            assert _is_retryable(OSError("test")) is False
+        finally:
+            _builtins.__import__ = _real_import
+            for key in list(sys.modules):
+                if key == "audnet.scrapli_collector":
+                    del sys.modules[key]
+
 
 class TestGetScrapliPlatformMapping:
     def test_all_vendors_have_driver_mapping(self):
@@ -230,6 +326,7 @@ class TestCollectAllScrapli:
 
         async def _slow(*a, **kw):
             import asyncio
+
             await asyncio.sleep(10)
             response = MagicMock()
             response.result = "output"
