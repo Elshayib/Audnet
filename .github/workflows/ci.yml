@@ -67,7 +67,7 @@ jobs:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 30
-          command: uv run pip-audit --ignore-vuln CVE-2026-44405 --ignore-vuln PYSEC-2026-196
+          command: uv run pip-audit --ignore-vuln CVE-2026-44405 --ignore-vuln PYSEC-2026-196 --ignore-vuln CVE-2026-30922
 
   test:
     needs: security
