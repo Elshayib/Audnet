@@ -116,7 +116,7 @@ class AlertManager:
 
     def _is_rate_limited(self, key: str) -> bool:
         """Check if an alert for this key is rate limited."""
-        now = time.monotonic()
+        now = time.time()
         last = self._last_alert_time.get(key, 0)
         if now - last < self._config.rate_limit_seconds:
             return True
@@ -126,7 +126,7 @@ class AlertManager:
     def _is_duplicate(self, event: ChangeEvent) -> bool:
         """Check if this event is a duplicate within the dedup window."""
         key = event.dedup_key
-        now = time.monotonic()
+        now = time.time()
         last = self._dedup_cache.get(key, 0)
         if now - last < self._config.dedup_window:
             return True
