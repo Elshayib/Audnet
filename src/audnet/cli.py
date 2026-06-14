@@ -104,6 +104,12 @@ def audit(
         "--async",
         help="Use asyncio-based SSH collector (recommended for >20 devices)",
     ),
+    backend: str = typer.Option(
+        "auto",
+        "--backend",
+        "-b",
+        help="Collection backend: auto, netmiko, asyncssh, scrapli",
+    ),
     connect_timeout: int = typer.Option(
         30,
         "--connect-timeout",
@@ -189,7 +195,35 @@ def audit(
 
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
-    if async_mode:
+
+    # Determine which backend to use
+    use_scrapli = False
+    use_asyncssh = False
+    if backend == "scrapli":
+        use_scrapli = True
+    elif backend == "asyncssh":
+        use_asyncssh = True
+    elif backend == "auto":
+        # Auto-prefer scrapli if available, then asyncssh if --async, else netmiko
+        try:
+            import scrapli  # noqa: F401
+
+            use_scrapli = True
+            console.print("[dim]Using Scrapli backend (auto-detected)[/dim]")
+        except ImportError:
+            use_asyncssh = async_mode
+    else:  # netmiko
+        use_asyncssh = async_mode
+
+    if use_scrapli:
+        import asyncio
+
+        from audnet.scrapli_collector import collect_all_scrapli
+
+        snapshots = asyncio.run(
+            collect_all_scrapli(devices, max_workers=workers, timeout=timeout)
+        )
+    elif use_asyncssh:
         import asyncio
 
         global _collect_all_async
@@ -197,7 +231,9 @@ def audit(
             from audnet.collector_async import collect_all_async
 
             _collect_all_async = collect_all_async
-        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers, timeout=timeout))
+        snapshots = asyncio.run(
+            _collect_all_async(devices, max_workers=workers, timeout=timeout)
+        )
     else:
         snapshots = collect_all(devices, max_workers=workers, timeout=timeout)
 
