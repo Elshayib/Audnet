@@ -127,6 +127,21 @@ def audit(
         "--no-drift",
         help="Skip drift/regression detection between audit runs",
     ),
+    git_history_dir: Path | None = typer.Option(
+        None,
+        "--git-history-dir",
+        help="Directory for Git-backed config history (default: ~/.net-audit/git-config-history)",
+    ),
+    no_git_history: bool = typer.Option(
+        False,
+        "--no-git-history",
+        help="Skip Git-backed config snapshot commits",
+    ),
+    git_push: bool = typer.Option(
+        False,
+        "--git-push",
+        help="Push Git config history to remote after committing (requires remote to be configured)",
+    ),
 ) -> None:
     """Run a full compliance audit against all (or filtered) devices.
 
@@ -270,6 +285,31 @@ def audit(
         except Exception as exc:
             logger.warning("Failed to save audit history: %s", exc)
 
+    # Git-backed config snapshot
+    if not no_git_history:
+        try:
+            from audnet.git_history import save_config_snapshot
+
+            device_configs = {
+                snap.device_name: snap.config.raw
+                for snap in snapshots
+                if not snap.collection_error and snap.config.raw
+            }
+            if device_configs:
+                commit_sha = save_config_snapshot(
+                    device_configs,
+                    history_dir=git_history_dir,
+                    push=git_push,
+                )
+                if commit_sha:
+                    console.print(
+                        f"[green]Git config snapshot: {commit_sha[:12]}[/green]"
+                    )
+                else:
+                    console.print("[dim]No config changes to commit to Git history[/dim]")
+        except Exception as exc:
+            logger.warning("Failed to save Git config history: %s", exc)
+
     if has_new_regressions:
         raise typer.Exit(code=2)
 
@@ -331,6 +371,149 @@ def history(
             checks_str,
         )
     console.print(table)
+
+
+@app.command(name="history-diff")
+def history_diff(
+    device: str = typer.Option(..., "--device", help="Device name"),
+    from_ref: str = typer.Option("HEAD~1", "--from", help="Older Git ref (default: HEAD~1)"),
+    to_ref: str = typer.Option("HEAD", "--to", help="Newer Git ref (default: HEAD)"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Git config history directory (default: ~/.net-audit/git-config-history)",
+    ),
+) -> None:
+    """Show Git diff between two config snapshots for a device.
+
+    Requires Git-backed config history to be enabled (run at least one audit
+    without --no-git-history).
+    """
+    from audnet.git_history import diff_configs
+
+    diff_text = diff_configs(
+        device_name=device,
+        from_ref=from_ref,
+        to_ref=to_ref,
+        history_dir=history_dir,
+    )
+    if diff_text:
+        console.print(diff_text)
+    else:
+        console.print(f"[yellow]No changes for '{device}' between {from_ref} and {to_ref}[/yellow]")
+
+
+@app.command(name="history-show")
+def history_show(
+    device: str = typer.Option(..., "--device", help="Device name"),
+    commit_ref: str = typer.Option("HEAD", "--ref", help="Git ref to show (default: HEAD)"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Git config history directory (default: ~/.net-audit/git-config-history)",
+    ),
+) -> None:
+    """Show a device's config at a specific Git ref."""
+    from audnet.git_history import get_config_at
+
+    config = get_config_at(
+        device_name=device,
+        commit_ref=commit_ref,
+        history_dir=history_dir,
+    )
+    if config is None:
+        console.print(
+            f"[red]No config found for '{device}' at ref '{commit_ref}'[/red]"
+        )
+        raise typer.Exit(code=1)
+    console.print(config)
+
+
+@app.command(name="history-log")
+def history_log(
+    device: str = typer.Option(..., "--device", help="Device name"),
+    limit: int = typer.Option(20, "--limit", help="Max number of commits to show"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Git config history directory (default: ~/.net-audit/git-config-history)",
+    ),
+) -> None:
+    """Show Git commit history for a device's config."""
+    from audnet.git_history import get_config_history
+
+    entries = get_config_history(
+        device_name=device,
+        history_dir=history_dir,
+        limit=limit,
+    )
+    if not entries:
+        console.print(f"[yellow]No Git config history for '{device}'[/yellow]")
+        return
+
+    table = Table(title=f"Config History — {device}")
+    table.add_column("Commit", style="dim")
+    table.add_column("Timestamp")
+    table.add_column("Message")
+    for entry in entries:
+        table.add_row(
+            entry["commit_sha"][:12],
+            entry["committed_at"],
+            entry["message"].splitlines()[0] if entry["message"] else "",
+        )
+    console.print(table)
+
+
+@app.command()
+def rollback(
+    device: str = typer.Option(..., "--device", help="Device name to roll back"),
+    commit_ref: str = typer.Option("HEAD~1", "--ref", help="Git ref to roll back to"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Git config history directory (default: ~/.net-audit/git-config-history)",
+    ),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        help="Preview the rollback without writing (default: dry-run)",
+    ),
+    push: bool = typer.Option(
+        False,
+        "--push",
+        help="Push to remote after committing rollback (requires remote to be configured)",
+    ),
+) -> None:
+    """Roll back a device's config to a previous Git commit.
+
+    By default runs in dry-run mode showing what would be restored.
+    Use --no-dry-run to actually write the config and commit.
+    """
+    from audnet.git_history import rollback_config
+
+    result = rollback_config(
+        device_name=device,
+        commit_ref=commit_ref,
+        history_dir=history_dir,
+        push=push,
+        dry_run=dry_run,
+    )
+
+    if dry_run:
+        console.print(
+            f"[bold yellow]DRY RUN — would rollback {device} to {commit_ref} "
+            f"({result['target_sha'][:12]})[/bold yellow]"
+        )
+        console.print("[dim]Use --no-dry-run to apply the rollback[/dim]")
+        console.print("\n[bold]Config preview:[/bold]")
+        console.print(result["config"][:500] + ("..." if len(result["config"]) > 500 else ""))
+    else:
+        console.print(
+            f"[green]Rolled back {device} to {commit_ref} "
+            f"({result['target_sha'][:12]})[/green]"
+        )
+        if "new_commit" in result:
+            console.print(f"New commit: {result['new_commit'][:12]}")
 
 
 @app.command(name="list-vendors")
