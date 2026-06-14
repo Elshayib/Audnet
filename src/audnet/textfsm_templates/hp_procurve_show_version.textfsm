@@ -1,0 +1,8 @@
+Value Required VERSION (\d+\.\d+\.\d+)
+Value MODEL (.+)
+Value SERIAL (\S+)
+
+Start
+  ^\s+${VERSION}\s*$$
+  ^\s+Product:\s+${MODEL}
+  ^\s+Serial No:\s+${SERIAL} -> Record

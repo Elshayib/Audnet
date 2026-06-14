@@ -1,0 +1,7 @@
+Value Required INTERFACE (\S+)
+Value STATUS (up|down)
+Value IP_ADDRESS (\S+)
+
+Start
+  ^Interface\s+${INTERFACE}\s+is\s+${STATUS}
+  ^\s+IP address\s+${IP_ADDRESS} -> Record

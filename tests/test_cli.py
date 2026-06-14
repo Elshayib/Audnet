@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+import pytest
 from audnet.cli import app
 from audnet.models import DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
+
+
+@pytest.fixture(autouse=True)
+def _disable_scrapli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent scrapli auto-detection in CLI tests (scrapli is optional)."""
+    import builtins as _builtins
+
+    _real_import = _builtins.__import__
+
+    def _blocked_import(
+        name: str, *args: Any, **kwargs: Any
+    ) -> Any:
+        if name == "scrapli" or name.startswith("scrapli."):
+            raise ImportError("scrapli not available in tests")
+        return _real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(_builtins, "__import__", _blocked_import)
+
 
 
 runner = CliRunner()
@@ -19,6 +39,21 @@ def _mock_snapshot(name: str, config_lines: list[str]) -> DeviceSnapshot:
         version=ParsedVersion(),
         config=ParsedConfig(lines=config_lines),
     )
+
+
+def _mock_device(
+    name: str,
+    device_type: str = "cisco_ios",
+    **kwargs: Any,
+) -> MagicMock:
+    """Create a MagicMock Device with device_type set (required for Scrapli backend)."""
+    m = MagicMock(name=name, **kwargs)
+    m.name = name
+    m.device_type = device_type
+    m.host = getattr(m, "host", "10.0.0.1")
+    m.username = getattr(m, "username", "admin")
+    m.password = getattr(m, "password", "x")
+    return m
 
 
 def _write_inventory(tmp_path: Path, devices: list[dict] | None = None) -> Path:
@@ -57,7 +92,7 @@ class TestCliAudit:
     def test_audit_pass(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -79,7 +114,7 @@ class TestCliAudit:
     def test_audit_fail(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -100,7 +135,7 @@ class TestCliAudit:
     def test_audit_collection_error(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -129,7 +164,7 @@ class TestCliAudit:
     def test_audit_html_only(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -163,8 +198,8 @@ class TestCliAudit:
         mock_inv.return_value = (
             {},
             [
-                MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
-                MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
+                _mock_device("rtr01", host="10.0.0.1", username="admin", password="x"),
+                _mock_device("sw01", host="10.0.0.2", username="admin", password="x"),
             ],
         )
         mock_bl.return_value = {
@@ -190,7 +225,7 @@ class TestCliAudit:
     def test_audit_verbose_flag(self, mock_inv, mock_bl, mock_collect, tmp_path):
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -222,8 +257,8 @@ class TestCliAudit:
         mock_inv.return_value = (
             {},
             [
-                MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
-                MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
+                _mock_device("rtr01", host="10.0.0.1", username="admin", password="x"),
+                _mock_device("sw01", host="10.0.0.2", username="admin", password="x"),
             ],
         )
         mock_bl.return_value = {
@@ -262,7 +297,7 @@ class TestCliAudit:
         mock_inv.return_value = (
             {},
             [
-                MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
+                _mock_device("rtr01", host="10.0.0.1", username="admin", password="x"),
             ],
         )
         mock_bl.return_value = {
@@ -296,7 +331,7 @@ class TestCliAudit:
         """--check filters results to specified check names."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {
@@ -332,7 +367,7 @@ class TestCliAudit:
         """--json outputs a JSON summary to stdout."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -374,7 +409,7 @@ class TestCliAudit:
         """--check with unknown check name prints a warning."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -409,7 +444,7 @@ class TestCliAudit:
         """--check with comma-separated values works correctly."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {
@@ -447,7 +482,7 @@ class TestCliAudit:
 
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -486,7 +521,7 @@ class TestCliAudit:
 
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -526,7 +561,7 @@ class TestCliDryRun:
         """--dry-run does not call collect_all (no SSH connections)."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -558,8 +593,8 @@ class TestCliDryRun:
         mock_inv.return_value = (
             {},
             [
-                MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x"),
-                MagicMock(name="sw01", host="10.0.0.2", username="admin", password="x"),
+                _mock_device("rtr01", host="10.0.0.1", username="admin", password="x"),
+                _mock_device("sw01", host="10.0.0.2", username="admin", password="x"),
             ],
         )
         mock_bl.return_value = {
@@ -599,7 +634,7 @@ class TestCliDryRun:
         """--dry-run with --check shows filtered checks."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {
@@ -672,7 +707,7 @@ class TestCliDryRun:
         """-n is a valid short flag for --dry-run."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -704,7 +739,7 @@ class TestCliDryRun:
         """--dry-run validates inventory and baseline loading."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -735,7 +770,7 @@ class TestCliDryRun:
         """--strict is forwarded to load_inventory."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -764,10 +799,10 @@ class TestCliDryRun:
     @patch("audnet.cli.load_inventory")
     def test_device_and_check_filter_combined(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device and --check can be used together."""
-        d1 = MagicMock(name="device_rtr01")
+        d1 = _mock_device("device_rtr01")
         d1.name = "rtr01"
         d1.host = "10.0.0.1"
-        d2 = MagicMock(name="device_rtr02")
+        d2 = _mock_device("device_rtr02")
         d2.name = "rtr02"
         d2.host = "10.0.0.2"
         mock_inv.return_value = ({}, [d1, d2])
@@ -809,10 +844,10 @@ class TestCliDryRun:
     @patch("audnet.cli.load_inventory")
     def test_json_output_with_device_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--json combined with --device produces filtered JSON output."""
-        d1 = MagicMock(name="device_rtr01")
+        d1 = _mock_device("device_rtr01")
         d1.name = "rtr01"
         d1.host = "10.0.0.1"
-        d2 = MagicMock(name="device_rtr02")
+        d2 = _mock_device("device_rtr02")
         d2.name = "rtr02"
         d2.host = "10.0.0.2"
         mock_inv.return_value = ({}, [d1, d2])
@@ -852,7 +887,7 @@ class TestCliDryRun:
     @patch("audnet.cli.load_inventory")
     def test_json_output_with_check_filter(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--json combined with --check produces filtered JSON output."""
-        d1 = MagicMock(name="device_rtr01")
+        d1 = _mock_device("device_rtr01")
         d1.name = "rtr01"
         d1.host = "10.0.0.1"
         mock_inv.return_value = ({}, [d1])
@@ -899,10 +934,10 @@ class TestCliDryRun:
     @patch("audnet.cli.load_inventory")
     def test_all_filters_combined(self, mock_inv, mock_bl, mock_collect, tmp_path):
         """--device, --check, --json, and --dry-run can be combined."""
-        d1 = MagicMock(name="device_rtr01")
+        d1 = _mock_device("device_rtr01")
         d1.name = "rtr01"
         d1.host = "10.0.0.1"
-        d2 = MagicMock(name="device_rtr02")
+        d2 = _mock_device("device_rtr02")
         d2.name = "rtr02"
         d2.host = "10.0.0.2"
         mock_inv.return_value = ({}, [d1, d2])
@@ -947,7 +982,7 @@ class TestCliExitCode:
         """--no-fail always exits 0 even when checks fail."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -985,7 +1020,7 @@ class TestCliAsyncMode:
         """--async flag routes to collect_all_async instead of collect_all."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -1024,7 +1059,7 @@ class TestCliAsyncMode:
         """Without --async, sync collect_all is used."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -1149,7 +1184,7 @@ class TestCliTimeout:
         """--timeout value is forwarded to collect_all(timeout=...)."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -1184,7 +1219,7 @@ class TestCliTimeout:
         """Without --timeout, collect_all receives timeout=None."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -1218,7 +1253,7 @@ class TestCliTimeout:
         """--timeout is also forwarded to collect_all_async when --async is set."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         mock_bl.return_value = {
             "checks": {"ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only"}}
@@ -1364,7 +1399,7 @@ class TestCliRemediate:
         """Missing config snippet file exits with code 1 and clear error."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         inv = _write_inventory(tmp_path)
 
@@ -1423,7 +1458,7 @@ class TestCliRemediate:
         """--device with missing name exits with code 1."""
         mock_inv.return_value = (
             {},
-            [MagicMock(name="rtr01", host="10.0.0.1", username="admin", password="x")],
+            [_mock_device("rtr01", host="10.0.0.1", username="admin", password="x")],
         )
         inv = _write_inventory(tmp_path)
         cfg = tmp_path / "snippet.txt"

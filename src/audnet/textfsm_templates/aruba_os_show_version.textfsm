@@ -1,0 +1,10 @@
+Value Required VERSION (\S+)
+Value HOSTNAME (\S+)
+Value MODEL (\S+)
+Value SERIAL (\S+)
+
+Start
+  ^${VERSION}\s*$$
+  ^Hostname:\s+${HOSTNAME}
+  ^System Description:\s+${MODEL}
+  ^Serial Number:\s+${SERIAL} -> Record
