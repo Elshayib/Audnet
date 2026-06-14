@@ -1,11 +1,7 @@
 """Tests for expanded vendor support (8 vendors) and auto-detection."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-from pydantic import SecretStr
 
-from audnet.models import Device
 from audnet.vendor_registry import (
     _DETECTION_RULES,
     detect_vendor,
@@ -293,15 +289,8 @@ class TestDetectVendorSNMP:
         """SNMP detection falls back when pysnmp is not installed."""
         import audnet.vendor_registry as vr
 
-        original = vr.__dict__.get("getCmd")
-        try:
-            # Temporarily make pysnmp unavailable
-            with patch.object(vr, "detect_vendor_snmp") as mock_detect:
-                mock_detect.return_value = "cisco_ios"
-                # Just verify the function exists and can be called
-                assert callable(vr.detect_vendor_snmp)
-        finally:
-            pass
+        # Just verify the function exists and can be called
+        assert callable(vr.detect_vendor_snmp)
 
     @pytest.mark.asyncio
     async def test_snmp_detection_error(self):
