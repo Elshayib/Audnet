@@ -23,3 +23,7 @@ class ComplianceError(NetAuditError):
 
 class ReportError(NetAuditError):
     """Raised when report generation or writing fails."""
+
+
+class GitHistoryError(NetAuditError):
+    """Raised when Git history operations fail."""

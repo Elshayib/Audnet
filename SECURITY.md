@@ -107,6 +107,33 @@ devices:
 - Plaintext passwords in inventory files trigger a warning at load time
 - `--strict` mode elevates the warning to a hard failure
 - `NETBOX_TOKEN` is used for NetBox API authentication (see below)
+- Git-backed config history sanitizes sensitive lines before committing (see below)
+
+### Git-Backed Config History
+
+When Git-backed config history is enabled (default), audnet stores sanitized device running configs
+in a Git repository (`~/.net-audit/git-config-history`). Before committing, the following line types
+are automatically redacted:
+
+- `password`, `enable password`, `enable secret`
+- `key string`, `key hash`
+- `snmp-server community`
+- `ip ospf message-digest-key`, `isis password`, `bgp password`
+- `ntp authkey`, `tacacs-key`, `radius-key`, `pre-shared-key`, `auth-key`, `priv-key`
+- `-----BEGIN ... PRIVATE KEY-----` blocks
+
+Redacted lines are replaced with `! [REDACTED by audnet — <device_name>]`. The original config
+on the device is not modified — only the stored snapshot is sanitized.
+
+**Local vs remote repos:** By default, configs are stored in a local-only Git repo. If you
+configure a remote (`git remote add origin ...`) and use `--git-push`, configs are pushed to
+the remote. Ensure the remote repository is private and access-controlled — even though
+configs are sanitized, device hostnames, interface names, and network topology information
+is visible in the stored configs.
+
+**Encrypting the Git repo:** For sensitive environments, consider encrypting the Git repository
+at rest (e.g., `git-crypt`, `age`, or an encrypted filesystem). This provides defense-in-depth
+in case the storage medium is compromised.
 
 ### NetBox Integration
 
@@ -131,6 +158,8 @@ net-audit audit --inventory netbox://netbox.example.com?site=dc1&role=router
 - Rotate passwords regularly
 - Use dedicated service accounts with minimal privileges for auditing
 - Audit who has access to inventory files and secret stores
+- If using `--git-push`, ensure the remote Git repo is private and access-controlled
+- Consider encrypting the Git config history repo at rest for sensitive environments
 
 ## Responsible Disclosure
 

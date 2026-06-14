@@ -32,6 +32,7 @@ dependencies = [
     "structlog>=24.0",
     "tenacity>=8.5.0",
     "asyncssh>=2.23.1",
+    "GitPython>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -81,6 +82,7 @@ module = [
     "yaml.*",
     "tenacity.*",
     "asyncssh.*",
+    "git.*",
 ]
 ignore_missing_imports = true
 

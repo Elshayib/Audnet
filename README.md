@@ -59,9 +59,10 @@ A Python CLI tool that:
 5. **Generates reports** — professional Markdown and HTML with pass/fail summaries
 6. **Supports filters & JSON** for targeted runs and CI integration
 7. **Tracks history** — SQLite-backed audit history with drift/regression detection
-8. **Multi-vendor** — Cisco IOS/XE/NX-OS, Arista EOS, Juniper JunOS, Palo Alto PAN-OS
-9. **NetBox inventory** — dynamic device inventory from NetBox API
-10. **Docker-ready** — containerized scheduled auditing with cron support
+8. **Git-backed config history** — Versioned device config snapshots with diff and rollback
+9. **Multi-vendor** — Cisco IOS/XE/NX-OS, Arista EOS, Juniper JunOS, Palo Alto PAN-OS
+10. **NetBox inventory** — dynamic device inventory from NetBox API
+11. **Docker-ready** — containerized scheduled auditing with cron support
 
 Every layer is independently testable with mocked responses — no real network hardware required.
 
@@ -362,6 +363,52 @@ audnet history --status fail
 audnet history --format json
 ```
 
+#### Git-backed config history
+
+Every successful audit automatically snapshots sanitized device running configs into a Git repository
+(default: `~/.net-audit/git-config-history`). Configs are sanitized before storage — passwords,
+keys, community strings, and private key blocks are redacted.
+
+```bash
+# View Git config history for a device
+audnet history-log --device core-router-01
+
+# Show config at a specific point in time
+audnet history-show --device core-router-01 --ref HEAD~3
+
+# Diff between two points
+audnet history-diff --device core-router-01 --from HEAD~1 --to HEAD
+
+# Preview a rollback (dry-run by default)
+audnet rollback --device core-router-01 --ref HEAD~1
+
+# Actually perform the rollback
+audnet rollback --device core-router-01 --ref HEAD~1 --no-dry-run
+```
+
+Use a custom Git repo path:
+
+```bash
+audnet audit --git-history-dir /path/to/config-repo
+```
+
+Push to a remote for centralized team history:
+
+```bash
+# Configure the remote once
+cd ~/.net-audit/git-config-history
+git remote add origin git@github.com:yourorg/config-history.git
+
+# Then audit with --git-push to push after each snapshot
+audnet audit --git-push
+```
+
+Skip Git history for a run:
+
+```bash
+audnet audit --no-git-history
+```
+
 #### List vendors
 
 List all registered vendor device types:
@@ -421,6 +468,9 @@ Summary: 1 passed, 1 with issues.
 | `--history-dir` | `~/.net-audit` | Directory for the SQLite history database |
 | `--no-history` | `false` | Skip writing audit results to the history database |
 | `--no-drift` | `false` | Skip drift/regression detection between audit runs |
+| `--git-history-dir` | `~/.net-audit/git-config-history` | Directory for Git-backed config history |
+| `--no-git-history` | `false` | Skip Git-backed config snapshot commits |
+| `--git-push` | `false` | Push Git config history to remote after committing |
 
 #### `history` subcommand
 
@@ -520,6 +570,7 @@ audnet/
 │   ├── compliance.py           # Rule engine (11 security checks, vendor-pattern overrides)
 │   ├── reporter.py             # Jinja2 report generator (Markdown + HTML)
 │   ├── history.py              # SQLite audit history store with drift detection
+│   ├── git_history.py          # Git-backed device config history with diff and rollback
 │   ├── inventory_sources/
 │   │   ├── __init__.py
 │   │   └── netbox.py           # NetBox dynamic inventory fetcher
@@ -562,6 +613,7 @@ audnet/
     ├── test_logging.py         # Structlog configuration and secret redaction
     ├── test_version.py         # Version string format and accessibility
     ├── test_history.py         # SQLite history store operations
+    ├── test_git_history.py     # Git-backed config history (sanitize, commit, diff, rollback)
     ├── test_drift.py           # Drift/regression detection
     ├── test_cli.py             # CLI tests including history subcommand
     └── test_netbox_inventory.py # NetBox inventory fetcher (mocked API)
