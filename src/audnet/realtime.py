@@ -63,9 +63,9 @@ class AlertConfig:
     dedup_window: int = 300  # dedup window in seconds
 
     # Listener bind addresses
-    syslog_bind_host: str = "0.0.0.0"
+    syslog_bind_host: str = "0.0.0.0"  # nosec B104 — intentional: listen on all interfaces by default, overridable
     syslog_bind_port: int = 514
-    snmp_trap_bind_host: str = "0.0.0.0"
+    snmp_trap_bind_host: str = "0.0.0.0"  # nosec B104 — intentional: listen on all interfaces by default, overridable
     snmp_trap_bind_port: int = 162
 
     # Syslog facility/priority filter (only process these)
@@ -206,7 +206,7 @@ class AlertManager:
                 loop = asyncio.get_event_loop()
                 resp = await loop.run_in_executor(
                     None,
-                    lambda: urllib.request.urlopen(req, timeout=self._config.webhook_timeout),
+                    lambda: urllib.request.urlopen(req, timeout=self._config.webhook_timeout),  # nosec B310 — webhook_url defaults to https://, validated at config time
                 )
                 logger.debug("Webhook sent: HTTP %s", resp.status)
                 return

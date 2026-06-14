@@ -546,7 +546,7 @@ def listen(
     smtp_use_tls: bool = typer.Option(True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"),
     email_from: str | None = typer.Option(None, "--email-from", help="Sender email address"),
     email_to: list[str] = typer.Option([], "--email-to", help="Recipient email address(es)"),
-    syslog_host: str = typer.Option("0.0.0.0", "--syslog-host", help="Syslog bind address"),
+    syslog_host: str = typer.Option("0.0.0.0", "--syslog-host", help="Syslog bind address"),  # nosec B104 — default bind-all, overridable by user
     syslog_port: int = typer.Option(514, "--syslog-port", help="Syslog UDP port"),
     snmp_community: str = typer.Option("public", "--snmp-community", help="SNMP trap community string"),
     poll_interval: int = typer.Option(300, "--poll-interval", help="Polling interval in seconds (0 to disable)"),
