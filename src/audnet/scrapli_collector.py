@@ -27,6 +27,8 @@ from audnet.vendor_registry import Slot, get_commands
 logger = logging.getLogger(__name__)
 
 # Scrapli is an optional dependency
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = ()
+_SCRAPLI_DRIVER_MAP: dict[str, type] = {}
 try:
     from scrapli.driver.core import (
         AsyncEOSDriver,
@@ -40,7 +42,29 @@ try:
         ScrapliConnectionError,
         ScrapliTimeout,
     )
+
     _SCRAPLI_AVAILABLE = True
+
+    # Transient exceptions worth retrying
+    _RETRYABLE_EXCEPTIONS = (
+        ScrapliConnectionError,
+        ScrapliTimeout,
+        OSError,
+        ConnectionError,
+    )
+
+    # Map audnet device_type -> Scrapli driver class
+    # Vendors with dedicated core drivers get those; others use AsyncNetworkDriver
+    _SCRAPLI_DRIVER_MAP = {
+        "cisco_ios": AsyncIOSXEDriver,
+        "cisco_nxos": AsyncNXOSDriver,
+        "arista_eos": AsyncEOSDriver,
+        "juniper_junos": AsyncJunosDriver,
+        "fortinet_fortios": AsyncNetworkDriver,
+        "paloalto_panos": AsyncNetworkDriver,
+        "aruba_os": AsyncNetworkDriver,
+        "hp_procurve": AsyncNetworkDriver,
+    }
 except ImportError:
     _SCRAPLI_AVAILABLE = False
 
@@ -54,33 +78,13 @@ def _check_scrapli_available() -> None:
         )
 
 
-# Transient exceptions worth retrying
-_RETRYABLE_EXCEPTIONS = (
-    ScrapliConnectionError,
-    ScrapliTimeout,
-    OSError,
-    ConnectionError,
-)
-
-
 def _is_retryable(exc: BaseException) -> bool:
+    if not _SCRAPLI_AVAILABLE:
+        return False
     if isinstance(exc, ScrapliAuthenticationFailed):
         return False
     return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
-
-# Map audnet device_type -> Scrapli driver class
-# Vendors with dedicated core drivers get those; others use AsyncNetworkDriver
-_SCRAPLI_DRIVER_MAP: dict[str, type] = {
-    "cisco_ios": AsyncIOSXEDriver,
-    "cisco_nxos": AsyncNXOSDriver,
-    "arista_eos": AsyncEOSDriver,
-    "juniper_junos": AsyncJunosDriver,
-    "fortinet_fortios": AsyncNetworkDriver,
-    "paloalto_panos": AsyncNetworkDriver,
-    "aruba_os": AsyncNetworkDriver,
-    "hp_procurve": AsyncNetworkDriver,
-}
 
 # textfsm_platform override for vendors using AsyncNetworkDriver
 # (core drivers have sensible defaults built in)
