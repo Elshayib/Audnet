@@ -33,6 +33,8 @@ dependencies = [
     "tenacity>=8.5.0",
     "asyncssh>=2.23.1",
     "GitPython>=3.1.0",
+    "pysnmp>=7.0",
+    "aiosmtplib>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +85,8 @@ module = [
     "tenacity.*",
     "asyncssh.*",
     "git.*",
+    "pysnmp.*",
+    "aiosmtplib.*",
 ]
 ignore_missing_imports = true
 
