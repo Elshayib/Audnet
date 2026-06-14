@@ -1,5 +1,6 @@
 """CLI entry point for audnet."""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -515,6 +516,107 @@ def rollback(
         if "new_commit" in result:
             console.print(f"New commit: {result['new_commit'][:12]}")
 
+
+
+@app.command()
+def listen(
+    inventory: str = typer.Option(
+        "inventories/devices.yaml",
+        help="Device inventory YAML (used for device-to-IP mapping)",
+    ),
+    baseline: str | None = typer.Option(
+        None,
+        "--baseline",
+        help="Security baseline YAML for compliance checks on detected changes",
+    ),
+    webhook_url: str | None = typer.Option(
+        None,
+        "--webhook-url",
+        help="Webhook URL for change alerts",
+    ),
+    webhook_secret: str | None = typer.Option(
+        None,
+        "--webhook-secret",
+        help="Secret for HMAC-SHA256 webhook signature",
+    ),
+    smtp_host: str | None = typer.Option(None, "--smtp-host", help="SMTP server hostname"),
+    smtp_port: int = typer.Option(587, "--smtp-port", help="SMTP server port"),
+    smtp_username: str | None = typer.Option(None, "--smtp-username", help="SMTP username"),
+    smtp_password: str | None = typer.Option(None, "--smtp-password", help="SMTP password"),
+    smtp_use_tls: bool = typer.Option(True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"),
+    email_from: str | None = typer.Option(None, "--email-from", help="Sender email address"),
+    email_to: list[str] = typer.Option([], "--email-to", help="Recipient email address(es)"),
+    syslog_host: str = typer.Option("0.0.0.0", "--syslog-host", help="Syslog bind address"),  # nosec B104 — default bind-all, overridable by user
+    syslog_port: int = typer.Option(514, "--syslog-port", help="Syslog UDP port"),
+    snmp_community: str = typer.Option("public", "--snmp-community", help="SNMP trap community string"),
+    poll_interval: int = typer.Option(300, "--poll-interval", help="Polling interval in seconds (0 to disable)"),
+    rate_limit: int = typer.Option(60, "--rate-limit", help="Min seconds between alerts per device"),
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
+    dry_run: bool = typer.Option(
+        True, "--dry-run/--no-dry-run",
+        help="Dry-run mode: listen and log but don\'t send alerts (default: dry-run)",
+    ),
+) -> None:
+    """Start real-time change detection listener.
+
+    Listens for syslog messages and SNMP traps, maps them to inventory
+    devices, and sends alerts via webhook and/or email on detected
+    configuration changes. Falls back to periodic polling for reliable
+    change detection.
+
+    Press Ctrl+C to stop.
+    """
+    _setup_logging(verbose)
+
+    from audnet.realtime import AlertConfig, AlertManager, RealtimeListener
+
+    try:
+        _, devices = load_inventory(inventory)
+    except Exception as exc:
+        console.print(f"[red]Failed to load inventory: {exc}[/red]")
+        raise typer.Exit(code=1)
+
+    inventory_map = {d.name: d.host for d in devices}
+    console.print(f"[bold blue]audnet v{__version__} \u2014 Starting real-time listener[/bold blue]")
+    console.print(f"Tracking {len(inventory_map)} devices")
+
+    alert_config = AlertConfig(
+        syslog_bind_host=syslog_host,
+        syslog_bind_port=syslog_port,
+        snmp_community=snmp_community,
+        poll_interval=poll_interval,
+        webhook_url=webhook_url,
+        webhook_secret=webhook_secret,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_username=smtp_username,
+        smtp_password=smtp_password,
+        smtp_use_tls=smtp_use_tls,
+        email_from=email_from,
+        email_to=email_to,
+        rate_limit_seconds=rate_limit,
+    )
+
+    if not alert_config.webhook_url and not alert_config.smtp_host:
+        console.print("[yellow]Warning: No webhook or email configured \u2014 alerts will only be logged[/yellow]")
+
+    if alert_config.smtp_host and (not alert_config.email_from or not alert_config.email_to):
+        console.print("[red]SMTP configured but --email-from or --email-to missing[/red]")
+        raise typer.Exit(code=1)
+
+    if dry_run:
+        console.print("[bold yellow]DRY RUN \u2014 alerts will be logged but not sent[/bold yellow]")
+
+    try:
+        alert_manager = AlertManager(alert_config)
+        listener = RealtimeListener(alert_config, alert_manager, inventory_map)
+        asyncio.run(listener.start())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Listener stopped by user[/yellow]")
+    except Exception as exc:
+        console.print(f"[red]Listener failed: {exc}[/red]")
+        logger.exception("Listener error")
+        raise typer.Exit(code=1)
 
 @app.command(name="list-vendors")
 def list_vendors_cmd(
