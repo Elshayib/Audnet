@@ -1,0 +1,5 @@
+Value Required PORT (\d+)
+Value STATUS (Up|Down)
+
+Start
+  ^\s+${PORT}\s+\S+.*\s+${STATUS}\s+ -> Record

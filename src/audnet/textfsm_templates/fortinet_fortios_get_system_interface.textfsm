@@ -1,0 +1,7 @@
+Value Required INTERFACE (\S+)
+Value IP_ADDRESS ((?:\d+\.){3}\d+)
+Value STATUS (\S+)
+
+Start
+  ^==\s+\[\s+${INTERFACE}\s+\]\s*$$
+  ^name:\s+\S+\s+ip:\s+${IP_ADDRESS}\s+\S+\s+status:\s+${STATUS}.* -> Record

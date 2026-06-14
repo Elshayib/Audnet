@@ -1,0 +1,10 @@
+Value Required HOSTNAME (\S+)
+Value VERSION (\S+)
+Value SERIAL (\S+)
+Value MODEL (\S+)
+
+Start
+  ^Hostname:\s+${HOSTNAME}
+  ^Version:\s+FortiOS\s+${VERSION}
+  ^Serial-Number:\s+${SERIAL}
+  ^Model:\s+${MODEL} -> Record
