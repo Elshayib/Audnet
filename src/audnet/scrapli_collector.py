@@ -31,7 +31,6 @@ try:
     from scrapli.driver.core import (
         AsyncEOSDriver,
         AsyncIOSXEDriver,
-        AsyncIOSXRDriver,
         AsyncJunosDriver,
         AsyncNXOSDriver,
     )
@@ -95,7 +94,7 @@ _TEXTFSM_PLATFORM_MAP: dict[str, str] = {
 
 def _get_scrapli_driver(device_type: str) -> type:
     """Return the Scrapli driver class for a given audnet device_type."""
-    return _SCRAPLI_DRIVER_MAP.get(device_type, AsyncIOSXEDriver)
+    return _SCRAPLI_DRIVER_MAP.get(device_type, AsyncIOSXEDriver)  # type: ignore[no-any-return]
 
 
 def _build_conn_params(device: Device) -> dict[str, Any]:
