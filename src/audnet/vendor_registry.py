@@ -100,6 +100,33 @@ VENDOR_PROFILES: dict[str, VendorProfile] = {
         prefix="paloalto_panos",
         description="Palo Alto PAN-OS",
     ),
+    "fortinet_fortios": _profile(
+        commands=[
+            "get system interface",
+            "get system status",
+            "show full-configuration",
+        ],
+        prefix="fortinet_fortios",
+        description="Fortinet FortiOS",
+    ),
+    "aruba_os": _profile(
+        commands=[
+            "show interface",
+            "show version",
+            "show running-config",
+        ],
+        prefix="aruba_os",
+        description="Aruba OS (AOS-CX)",
+    ),
+    "hp_procurve": _profile(
+        commands=[
+            "show interfaces brief",
+            "show version",
+            "show running-config",
+        ],
+        prefix="hp_procurve",
+        description="HP ProCurve",
+    ),
 }
 
 _DEFAULT_VENDOR = "cisco_ios"
@@ -135,6 +162,21 @@ VENDOR_TEMPLATE_SUFFIXES: dict[str, dict[Slot, str]] = {
         Slot.INTERFACES: "show_interface_all",
         Slot.VERSION: "show_system_info",
         Slot.RUNNING_CONFIG: "show_config_running",
+    },
+    "fortinet_fortios": {
+        Slot.INTERFACES: "get_system_interface",
+        Slot.VERSION: "get_system_status",
+        Slot.RUNNING_CONFIG: "show_full_configuration",
+    },
+    "aruba_os": {
+        Slot.INTERFACES: "show_interface",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "hp_procurve": {
+        Slot.INTERFACES: "show_interfaces_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
     },
 }
 
