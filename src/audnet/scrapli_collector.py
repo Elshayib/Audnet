@@ -94,7 +94,8 @@ _TEXTFSM_PLATFORM_MAP: dict[str, str] = {
 
 def _get_scrapli_driver(device_type: str) -> type:
     """Return the Scrapli driver class for a given audnet device_type."""
-    return _SCRAPLI_DRIVER_MAP.get(device_type, AsyncIOSXEDriver)  # type: ignore[no-any-return]
+    from typing import cast
+    return cast(type, _SCRAPLI_DRIVER_MAP.get(device_type, AsyncIOSXEDriver))
 
 
 def _build_conn_params(device: Device) -> dict[str, Any]:
