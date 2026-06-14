@@ -145,16 +145,21 @@ def init_git_repo(
 def _configure_repo(repo: gitpython.Repo) -> None:
     """Set minimal git config for the repo if not already configured."""
     # Check repo-level config only (not global/system)
-    repo_cfg_path = Path(repo.git_dir) / "config"  # type: ignore[arg-type]
-    if repo_cfg_path.exists():
-        import configparser
-        parser = configparser.ConfigParser()
-        parser.read(str(repo_cfg_path))
-        has_name = parser.has_option("user", "name")
-        has_email = parser.has_option("user", "email")
-    else:
+    git_dir = repo.git_dir
+    if git_dir is None:
         has_name = False
         has_email = False
+    else:
+        repo_cfg_path = Path(git_dir) / "config"
+        if repo_cfg_path.exists():
+            import configparser
+            parser = configparser.ConfigParser()
+            parser.read(str(repo_cfg_path))
+            has_name = parser.has_option("user", "name")
+            has_email = parser.has_option("user", "email")
+        else:
+            has_name = False
+            has_email = False
 
     config = repo.config_writer()
     try:
@@ -202,7 +207,10 @@ def save_config_snapshot(
     """
     _require_gitpython()
     repo = init_git_repo(history_dir)
-    work_tree = Path(repo.working_tree_dir)  # type: ignore[arg_type]
+    wt = repo.working_tree_dir
+    if wt is None:
+        raise GitHistoryError("Git repo has no working tree (bare repo?)")
+    work_tree = Path(wt)
 
     for device_name, raw_config in device_configs.items():
         safe_name = re.sub(r"[^a-zA-Z0-9._-]", "-", device_name.lower())
@@ -283,7 +291,8 @@ def get_config_at(
     try:
         commit = repo.commit(commit_ref)
         blob = commit.tree / cfg_rel
-        return blob.data_stream.read().decode("utf-8")
+        data: bytes = blob.data_stream.read()
+        return data.decode("utf-8")
     except (KeyError, GitCommandError):
         return None
 
@@ -355,7 +364,12 @@ def diff_configs(
     )
     parts: list[str] = []
     for d in diffs:
-        patch = d.diff.decode("utf-8", errors="replace") if d.diff else ""
+        if d.diff is None:
+            patch = ""
+        elif isinstance(d.diff, bytes):
+            patch = d.diff.decode("utf-8", errors="replace")
+        else:
+            patch = d.diff
         parts.append(patch)
     return "\n".join(parts)
 
@@ -385,7 +399,10 @@ def rollback_config(
     """
     _require_gitpython()
     repo = init_git_repo(history_dir)
-    work_tree = Path(repo.working_tree_dir)  # type: ignore[arg-type]
+    wt = repo.working_tree_dir
+    if wt is None:
+        raise GitHistoryError("Git repo has no working tree (bare repo?)")
+    work_tree = Path(wt)
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "-", device_name.lower())
     cfg_file = work_tree / f"{safe_name}.cfg"
 
