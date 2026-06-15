@@ -26,9 +26,14 @@ try:
 except ImportError:
     _AIOSMTPLIB_AVAILABLE = False
 
-from pysnmp.carrier.asyncio.dgram import udp
-from pysnmp.entity import config, engine
-from pysnmp.entity.rfc3413 import ntfrcv
+try:
+    from pysnmp.carrier.asyncio.dgram import udp
+    from pysnmp.entity import config as snmp_config, engine
+    from pysnmp.entity.rfc3413 import ntfrcv
+
+    _PYSNMP_AVAILABLE = True
+except ImportError:
+    _PYSNMP_AVAILABLE = False
 
 
 logger = logging.getLogger(__name__)
@@ -328,16 +333,21 @@ class SnmpTrapReceiver:
         on_trap: Callable[[str, str, str], Any],
         device_map: dict[str, str],
     ) -> None:
+        if not _PYSNMP_AVAILABLE:
+            raise ImportError(
+                "SNMP trap reception requires pysnmp. "
+                "Install it with: pip install pysnmp"
+            )
         self._alert_config = alert_config
         self._on_trap = on_trap
         self._device_map = device_map
         self._snmp_engine = engine.SnmpEngine()
 
         # Configure SNMPv2c community
-        config.add_v1_system(self._snmp_engine, "audnet", self._alert_config.snmp_community)
+        snmp_config.add_v1_system(self._snmp_engine, "audnet", self._alert_config.snmp_community)
 
         # Configure transport
-        config.add_transport(
+        snmp_config.add_transport(
             self._snmp_engine,
             udp.DOMAIN_NAME,
             udp.UdpTransport().open_server_mode(

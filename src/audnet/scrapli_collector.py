@@ -57,6 +57,7 @@ try:
     # Vendors with dedicated core drivers get those; others use AsyncNetworkDriver
     _SCRAPLI_DRIVER_MAP = {
         "cisco_ios": AsyncIOSXEDriver,
+        "cisco_xe": AsyncIOSXEDriver,
         "cisco_nxos": AsyncNXOSDriver,
         "arista_eos": AsyncEOSDriver,
         "juniper_junos": AsyncJunosDriver,
