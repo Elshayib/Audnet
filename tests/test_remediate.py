@@ -465,10 +465,10 @@ class TestRollbackConfig:
         """Should try configure replace first with timing-based output."""
         mock_conn = MagicMock()
         mock_conn.send_command.side_effect = [
-            "Copy successful",  # copy running-config flash:...
             "Delete successful",  # delete flash:...
         ]
         mock_conn.send_command_timing.side_effect = [
+            "Copy successful",  # copy running-config flash:...
             "Rollback successful",  # configure replace flash:... force
         ]
 
@@ -481,10 +481,10 @@ class TestRollbackConfig:
         """Should handle [y/n] confirmation prompt from configure replace."""
         mock_conn = MagicMock()
         mock_conn.send_command.side_effect = [
-            "Copy successful",  # copy running-config flash:...
             "Delete successful",  # delete flash:...
         ]
         mock_conn.send_command_timing.side_effect = [
+            "Copy successful",  # copy running-config flash:...
             "This will apply the following configuration:\nAre you sure? [y/n]",  # configure replace
             "Confirmed",  # y
         ]

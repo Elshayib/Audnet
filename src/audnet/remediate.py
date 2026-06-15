@@ -452,7 +452,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
     # Strategy 1: configure replace with timing-based output
     try:
         # Save previous config to a file on the device
-        conn.send_command(f"copy running-config flash:{rollback_file}")
+        conn.send_command_timing(f"copy running-config flash:{rollback_file}")
 
         # Use send_command_timing to handle interactive output from
         # configure replace on IOS-XE, which produces intermediate prompts
