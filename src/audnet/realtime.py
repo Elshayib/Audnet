@@ -18,7 +18,14 @@ from email.mime.text import MIMEText
 from typing import Any, Callable
 
 import asyncssh
-import aiosmtplib
+
+try:
+    import aiosmtplib  # noqa: F401
+
+    _AIOSMTPLIB_AVAILABLE = True
+except ImportError:
+    _AIOSMTPLIB_AVAILABLE = False
+
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity import config, engine
 from pysnmp.entity.rfc3413 import ntfrcv
@@ -133,8 +140,7 @@ class AlertManager:
         self._dedup_cache[key] = now
         # Clean old entries
         self._dedup_cache = {
-            k: v for k, v in self._dedup_cache.items()
-            if now - v < self._config.dedup_window * 2
+            k: v for k, v in self._dedup_cache.items() if now - v < self._config.dedup_window * 2
         }
         return False
 
@@ -174,19 +180,22 @@ class AlertManager:
         import urllib.request
         import urllib.error
 
-        payload = json.dumps({
-            "device_name": event.device_name,
-            "source_ip": event.source_ip,
-            "event_type": event.event_type,
-            "timestamp": event.timestamp,
-            "severity": event.severity,
-            "change_summary": event.change_summary,
-            "compliance_results": event.compliance_results,
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "device_name": event.device_name,
+                "source_ip": event.source_ip,
+                "event_type": event.event_type,
+                "timestamp": event.timestamp,
+                "severity": event.severity,
+                "change_summary": event.change_summary,
+                "compliance_results": event.compliance_results,
+            }
+        ).encode("utf-8")
 
         headers = {"Content-Type": "application/json"}
         if self._config.webhook_secret:
             import hmac
+
             signature = hmac.new(
                 self._config.webhook_secret.encode(),
                 payload,
@@ -218,11 +227,15 @@ class AlertManager:
                     exc,
                 )
                 if attempt < self._config.webhook_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
 
     async def _send_email(self, event: ChangeEvent) -> None:
         """Send email alert via SMTP."""
         if not self._config.email_from or not self._config.email_to:
+            return
+
+        if not _AIOSMTPLIB_AVAILABLE:
+            logger.error("Email alerts require aiosmtplib. Install it with: pip install aiosmtplib")
             return
 
         subject = f"[{event.severity.upper()}] Config change on {event.device_name}"
@@ -264,7 +277,9 @@ class AlertManager:
             lines.append("Compliance Results:")
             for r in event.compliance_results:
                 status = "PASS" if r.get("passed") else "FAIL"
-                lines.append(f"  [{status}] {r.get('check_name', 'unknown')}: {r.get('detail', '')}")
+                lines.append(
+                    f"  [{status}] {r.get('check_name', 'unknown')}: {r.get('detail', '')}"
+                )
             lines.append("")
         lines.append("Raw Message:")
         lines.append(event.raw_message[:2000] if event.raw_message else "(empty)")
@@ -486,7 +501,11 @@ class RealtimeListener:
             lambda: SyslogProtocol(on_message, self._device_map),
             local_addr=(self._alert_config.syslog_bind_host, self._alert_config.syslog_bind_port),
         )
-        logger.info("Syslog listener bound to %s:%d", self._alert_config.syslog_bind_host, self._alert_config.syslog_bind_port)
+        logger.info(
+            "Syslog listener bound to %s:%d",
+            self._alert_config.syslog_bind_host,
+            self._alert_config.syslog_bind_port,
+        )
 
         try:
             while self._running:

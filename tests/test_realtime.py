@@ -339,6 +339,7 @@ class TestRealtimeListener:
 class TestCliListen:
     def test_listen_command_exists(self):
         from audnet.cli import app
+
         command_names = []
         for cmd in app.registered_commands:
             if cmd.name:
@@ -354,15 +355,20 @@ class TestCliListen:
         runner = CliRunner()
         # Create a minimal inventory
         inv = tmp_path / "devices.yaml"
-        inv.write_text("devices:\n  - name: rtr01\n    host: 10.0.0.1\n    username: admin\n    password: test\n")
+        inv.write_text(
+            "devices:\n  - name: rtr01\n    host: 10.0.0.1\n    username: admin\n    password: test\n"
+        )
 
         result = runner.invoke(
             app,
             [
                 "listen",
-                "--inventory", str(inv),
-                "--smtp-host", "smtp.example.com",
-                "--email-from", "test@example.com",
+                "--inventory",
+                str(inv),
+                "--smtp-host",
+                "smtp.example.com",
+                "--email-from",
+                "test@example.com",
                 # Missing --email-to
             ],
         )
@@ -441,10 +447,13 @@ class TestWebhookSender:
         mock_resp = MagicMock()
         mock_resp.status = 200
 
-        with patch("urllib.request.urlopen", side_effect=[
-            urllib.error.URLError("timeout"),
-            mock_resp,
-        ]) as mock_urlopen:
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[
+                urllib.error.URLError("timeout"),
+                mock_resp,
+            ],
+        ) as mock_urlopen:
             await manager._send_webhook(sample_event)
 
         assert mock_urlopen.call_count == 2
@@ -540,6 +549,16 @@ class TestEmailSender:
         msg = mock_send.call_args.args[0]
         assert "rtr01" in msg["Subject"]
         assert "Config change detected" in msg.get_payload(decode=True).decode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_send_email_skips_when_aiosmtplib_not_installed(self, email_config, sample_event):
+        """_send_email logs error and returns early when aiosmtplib is not available."""
+        from unittest.mock import patch
+
+        manager = AlertManager(email_config)
+        with patch("audnet.realtime._AIOSMTPLIB_AVAILABLE", False):
+            # Should not raise, just log and return
+            await manager._send_email(sample_event)
 
 
 # ---------------------------------------------------------------------------
@@ -638,8 +657,10 @@ class TestSendAlertTaskGathering:
             severity="high",
         )
 
-        with patch.object(manager, "_send_webhook", new_callable=AsyncMock) as mock_webhook, \
-             patch.object(manager, "_send_email", new_callable=AsyncMock) as mock_email:
+        with (
+            patch.object(manager, "_send_webhook", new_callable=AsyncMock) as mock_webhook,
+            patch.object(manager, "_send_email", new_callable=AsyncMock) as mock_email,
+        ):
             await manager.send_alert(event)
 
         mock_webhook.assert_called_once_with(event)
@@ -671,8 +692,15 @@ class TestSendAlertTaskGathering:
         )
 
         # Make webhook raise an exception
-        with patch.object(manager, "_send_webhook", new_callable=AsyncMock, side_effect=Exception("network error")), \
-             patch.object(manager, "_send_email", new_callable=AsyncMock):
+        with (
+            patch.object(
+                manager,
+                "_send_webhook",
+                new_callable=AsyncMock,
+                side_effect=Exception("network error"),
+            ),
+            patch.object(manager, "_send_email", new_callable=AsyncMock),
+        ):
             # Should not raise — exceptions are caught by gather(return_exceptions=True)
             await manager.send_alert(event)
 
@@ -707,6 +735,10 @@ class TestEmailErrorHandling:
             severity="medium",
         )
 
-        with patch("audnet.realtime.aiosmtplib.send", new_callable=AsyncMock, side_effect=Exception("SMTP error")):
+        with patch(
+            "audnet.realtime.aiosmtplib.send",
+            new_callable=AsyncMock,
+            side_effect=Exception("SMTP error"),
+        ):
             with pytest.raises(Exception, match="SMTP error"):
                 await manager._send_email(event)
