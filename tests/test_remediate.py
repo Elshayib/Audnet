@@ -490,6 +490,21 @@ class TestRollbackConfig:
         result = _rollback_config(mock_conn, "hostname rtr01\n")
         assert "Confirmed" in result
 
+    def test_configure_replace_with_no_prompt(self):
+        """Should handle '? [no]:' confirmation prompt from configure replace."""
+        mock_conn = MagicMock()
+        mock_conn.send_command_timing.side_effect = [
+            "Copy successful",  # copy running-config flash:...
+            "This will apply the following configuration:\n? [no]:",  # configure replace
+            "Confirmed",  # send y
+            "Delete successful",  # delete flash:...
+        ]
+
+        from audnet.remediate import _rollback_config
+
+        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        assert "Confirmed" in result
+
     def test_netmiko_rollback_fallback(self):
         """Should try Netmiko built-in rollback if configure replace fails."""
         mock_conn = MagicMock()

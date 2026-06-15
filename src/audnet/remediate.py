@@ -463,8 +463,9 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
             read_timeout=120,
         )
 
-        # Handle any confirmation prompts (e.g., "[y/n]", "[yes/no]")
-        if "y/n" in output.lower() or "yes/no" in output.lower():
+        # Handle any confirmation prompts (e.g., "[y/n]", "[yes/no]", "? [no]:")
+        lower = output.lower()
+        if "y/n" in lower or "yes/no" in lower or "[no]" in lower:
             output += conn.send_command_timing("y", read_timeout=120)
 
         logger.info("configure replace rollback succeeded")
