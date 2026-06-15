@@ -17,6 +17,7 @@ from audnet.compliance import run_checks
 from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
+from audnet.exceptions import GitHistoryError
 from audnet.history import save_run, diff_runs, get_runs
 from audnet.remediate import RemediationStatus
 
@@ -220,9 +221,7 @@ def audit(
 
         from audnet.scrapli_collector import collect_all_scrapli
 
-        snapshots = asyncio.run(
-            collect_all_scrapli(devices, max_workers=workers, timeout=timeout)
-        )
+        snapshots = asyncio.run(collect_all_scrapli(devices, max_workers=workers, timeout=timeout))
     elif use_asyncssh:
         import asyncio
 
@@ -231,9 +230,7 @@ def audit(
             from audnet.collector_async import collect_all_async
 
             _collect_all_async = collect_all_async
-        snapshots = asyncio.run(
-            _collect_all_async(devices, max_workers=workers, timeout=timeout)
-        )
+        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers, timeout=timeout))
     else:
         snapshots = collect_all(devices, max_workers=workers, timeout=timeout)
 
@@ -340,9 +337,7 @@ def audit(
                     push=git_push,
                 )
                 if commit_sha:
-                    console.print(
-                        f"[green]Git config snapshot: {commit_sha[:12]}[/green]"
-                    )
+                    console.print(f"[green]Git config snapshot: {commit_sha[:12]}[/green]")
                 else:
                     console.print("[dim]No config changes to commit to Git history[/dim]")
         except Exception as exc:
@@ -427,14 +422,25 @@ def history_diff(
     Requires Git-backed config history to be enabled (run at least one audit
     without --no-git-history).
     """
-    from audnet.git_history import diff_configs
+    try:
+        from audnet.git_history import diff_configs
+    except ImportError:
+        console.print(
+            "[red]GitPython is not installed. Install it with: pip install GitPython[/red]"
+        )
+        raise typer.Exit(code=1)
 
-    diff_text = diff_configs(
-        device_name=device,
-        from_ref=from_ref,
-        to_ref=to_ref,
-        history_dir=history_dir,
-    )
+    try:
+        diff_text = diff_configs(
+            device_name=device,
+            from_ref=from_ref,
+            to_ref=to_ref,
+            history_dir=history_dir,
+        )
+    except GitHistoryError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
     if diff_text:
         console.print(diff_text)
     else:
@@ -452,17 +458,26 @@ def history_show(
     ),
 ) -> None:
     """Show a device's config at a specific Git ref."""
-    from audnet.git_history import get_config_at
-
-    config = get_config_at(
-        device_name=device,
-        commit_ref=commit_ref,
-        history_dir=history_dir,
-    )
-    if config is None:
+    try:
+        from audnet.git_history import get_config_at
+    except ImportError:
         console.print(
-            f"[red]No config found for '{device}' at ref '{commit_ref}'[/red]"
+            "[red]GitPython is not installed. Install it with: pip install GitPython[/red]"
         )
+        raise typer.Exit(code=1)
+
+    try:
+        config = get_config_at(
+            device_name=device,
+            commit_ref=commit_ref,
+            history_dir=history_dir,
+        )
+    except GitHistoryError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    if config is None:
+        console.print(f"[red]No config found for '{device}' at ref '{commit_ref}'[/red]")
         raise typer.Exit(code=1)
     console.print(config)
 
@@ -478,13 +493,24 @@ def history_log(
     ),
 ) -> None:
     """Show Git commit history for a device's config."""
-    from audnet.git_history import get_config_history
+    try:
+        from audnet.git_history import get_config_history
+    except ImportError:
+        console.print(
+            "[red]GitPython is not installed. Install it with: pip install GitPython[/red]"
+        )
+        raise typer.Exit(code=1)
 
-    entries = get_config_history(
-        device_name=device,
-        history_dir=history_dir,
-        limit=limit,
-    )
+    try:
+        entries = get_config_history(
+            device_name=device,
+            history_dir=history_dir,
+            limit=limit,
+        )
+    except GitHistoryError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
     if not entries:
         console.print(f"[yellow]No Git config history for '{device}'[/yellow]")
         return
@@ -527,15 +553,25 @@ def rollback(
     By default runs in dry-run mode showing what would be restored.
     Use --no-dry-run to actually write the config and commit.
     """
-    from audnet.git_history import rollback_config
+    try:
+        from audnet.git_history import rollback_config
+    except ImportError:
+        console.print(
+            "[red]GitPython is not installed. Install it with: pip install GitPython[/red]"
+        )
+        raise typer.Exit(code=1)
 
-    result = rollback_config(
-        device_name=device,
-        commit_ref=commit_ref,
-        history_dir=history_dir,
-        push=push,
-        dry_run=dry_run,
-    )
+    try:
+        result = rollback_config(
+            device_name=device,
+            commit_ref=commit_ref,
+            history_dir=history_dir,
+            push=push,
+            dry_run=dry_run,
+        )
+    except GitHistoryError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
 
     if dry_run:
         console.print(
@@ -547,12 +583,10 @@ def rollback(
         console.print(result["config"][:500] + ("..." if len(result["config"]) > 500 else ""))
     else:
         console.print(
-            f"[green]Rolled back {device} to {commit_ref} "
-            f"({result['target_sha'][:12]})[/green]"
+            f"[green]Rolled back {device} to {commit_ref} ({result['target_sha'][:12]})[/green]"
         )
         if "new_commit" in result:
             console.print(f"New commit: {result['new_commit'][:12]}")
-
 
 
 @app.command()
@@ -580,18 +614,27 @@ def listen(
     smtp_port: int = typer.Option(587, "--smtp-port", help="SMTP server port"),
     smtp_username: str | None = typer.Option(None, "--smtp-username", help="SMTP username"),
     smtp_password: str | None = typer.Option(None, "--smtp-password", help="SMTP password"),
-    smtp_use_tls: bool = typer.Option(True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"),
+    smtp_use_tls: bool = typer.Option(
+        True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"
+    ),
     email_from: str | None = typer.Option(None, "--email-from", help="Sender email address"),
     email_to: list[str] = typer.Option([], "--email-to", help="Recipient email address(es)"),
     syslog_host: str = typer.Option("0.0.0.0", "--syslog-host", help="Syslog bind address"),  # nosec B104 — default bind-all, overridable by user
     syslog_port: int = typer.Option(514, "--syslog-port", help="Syslog UDP port"),
-    snmp_community: str = typer.Option("public", "--snmp-community", help="SNMP trap community string"),
-    poll_interval: int = typer.Option(300, "--poll-interval", help="Polling interval in seconds (0 to disable)"),
-    rate_limit: int = typer.Option(60, "--rate-limit", help="Min seconds between alerts per device"),
+    snmp_community: str = typer.Option(
+        "public", "--snmp-community", help="SNMP trap community string"
+    ),
+    poll_interval: int = typer.Option(
+        300, "--poll-interval", help="Polling interval in seconds (0 to disable)"
+    ),
+    rate_limit: int = typer.Option(
+        60, "--rate-limit", help="Min seconds between alerts per device"
+    ),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
     dry_run: bool = typer.Option(
-        True, "--dry-run/--no-dry-run",
-        help="Dry-run mode: listen and log but don\'t send alerts (default: dry-run)",
+        True,
+        "--dry-run/--no-dry-run",
+        help="Dry-run mode: listen and log but don't send alerts (default: dry-run)",
     ),
 ) -> None:
     """Start real-time change detection listener.
@@ -614,7 +657,9 @@ def listen(
         raise typer.Exit(code=1)
 
     inventory_map = {d.name: d.host for d in devices}
-    console.print(f"[bold blue]audnet v{__version__} \u2014 Starting real-time listener[/bold blue]")
+    console.print(
+        f"[bold blue]audnet v{__version__} \u2014 Starting real-time listener[/bold blue]"
+    )
     console.print(f"Tracking {len(inventory_map)} devices")
 
     alert_config = AlertConfig(
@@ -635,14 +680,18 @@ def listen(
     )
 
     if not alert_config.webhook_url and not alert_config.smtp_host:
-        console.print("[yellow]Warning: No webhook or email configured \u2014 alerts will only be logged[/yellow]")
+        console.print(
+            "[yellow]Warning: No webhook or email configured \u2014 alerts will only be logged[/yellow]"
+        )
 
     if alert_config.smtp_host and (not alert_config.email_from or not alert_config.email_to):
         console.print("[red]SMTP configured but --email-from or --email-to missing[/red]")
         raise typer.Exit(code=1)
 
     if dry_run:
-        console.print("[bold yellow]DRY RUN \u2014 alerts will be logged but not sent[/bold yellow]")
+        console.print(
+            "[bold yellow]DRY RUN \u2014 alerts will be logged but not sent[/bold yellow]"
+        )
 
     try:
         alert_manager = AlertManager(alert_config)
@@ -654,6 +703,7 @@ def listen(
         console.print(f"[red]Listener failed: {exc}[/red]")
         logger.exception("Listener error")
         raise typer.Exit(code=1)
+
 
 @app.command(name="list-vendors")
 def list_vendors_cmd(
@@ -774,6 +824,7 @@ def remediate(
     # Try YAML first (config_snippet: [...] format), fall back to plain text
     try:
         import yaml
+
         config_data = yaml.safe_load(config_text)
         if isinstance(config_data, dict) and "config_snippet" in config_data:
             config_snippet = config_data["config_snippet"]
