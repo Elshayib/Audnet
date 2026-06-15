@@ -64,6 +64,15 @@ VENDOR_PROFILES: dict[str, VendorProfile] = {
         prefix="cisco_ios",
         description="Cisco IOS / IOS-XE",
     ),
+    "cisco_xe": _profile(
+        commands=[
+            "show ip interface brief",
+            "show version",
+            "show running-config",
+        ],
+        prefix="cisco_ios",
+        description="Cisco IOS-XE (alias for cisco_ios)",
+    ),
     "cisco_nxos": _profile(
         commands=[
             "show ip interface brief",
@@ -139,6 +148,11 @@ _DEFAULT_VENDOR = "cisco_ios"
 # values are dicts mapping Slot -> suffix string.
 VENDOR_TEMPLATE_SUFFIXES: dict[str, dict[Slot, str]] = {
     "cisco_ios": {
+        Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "cisco_xe": {
         Slot.INTERFACES: "show_ip_interface_brief",
         Slot.VERSION: "show_version",
         Slot.RUNNING_CONFIG: "show_running_config",
@@ -260,6 +274,8 @@ _DETECTION_RULES: list[tuple[str, str]] = [
     ("EOS", "arista_eos"),
     ("PAN-OS", "paloalto_panos"),
     ("Palo Alto", "paloalto_panos"),
+    ("Cisco IOS-XE", "cisco_xe"),
+    ("Cisco IOS-X", "cisco_xe"),
     ("Cisco IOS", "cisco_ios"),
     ("Cisco Internetwork Operating System", "cisco_ios"),
 ]
