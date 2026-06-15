@@ -351,12 +351,20 @@ def apply_config(
 
     applied = False
     try:
-        # Enter config mode and apply lines
-        output = conn.send_config_set(diff.added_lines, exit_config_mode=True)
+        # Enter config mode and apply lines.
+        # Use the full config_snippet (not just diff.added_lines) so that
+        # parent context commands (e.g. "interface Loopback999") are included
+        # alongside sub-mode commands (e.g. "description NEW"). Sending only
+        # the diff lines would place sub-mode commands in global config mode,
+        # which fails silently on IOS-XE.
+        output = conn.send_config_set(config_snippet, exit_config_mode=True)
         logger.debug("Config apply output: %s", output)
         applied = True
 
-        # Verify: re-read running config and check lines are present
+        # Verify: re-read running config and check lines are present.
+        # Only verify the lines that were actually new (diff.added_lines),
+        # not the full snippet — parent context lines may have been present
+        # already and that is expected.
         post_config = conn.send_command("show running-config")
         post_lines = post_config.splitlines() if post_config else []
         post_set = {line.strip() for line in post_lines if line.strip()}
@@ -470,9 +478,36 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
 
         logger.info("configure replace rollback succeeded")
 
-        # Clean up rollback file
-        try:  # pragma: no cover
-            conn.send_command_timing(f"delete flash:{rollback_file}")
+        # configure replace disrupts the SSH session on IOS-XE.
+        # Disconnect and reconnect before cleanup to avoid ReadTimeout
+        # on subsequent commands.
+        try:
+            conn.disconnect()
+        except Exception:  # pragma: no cover  # nosec B110
+            pass
+
+        # Reconnect for cleanup commands. If reconnect fails (e.g. device
+        # still converging), skip cleanup and return — the rollback itself
+        # already succeeded.
+        try:
+            # pragma: no cover
+            new_conn = ConnectHandler(
+                device_type=conn.device_type,
+                host=conn.host,
+                username=conn.username,
+                password=conn.password,
+                port=conn.port,
+                timeout=conn.timeout,
+            )
+            # Clean up rollback file on the new connection
+            try:
+                new_conn.send_command_timing(f"delete flash:{rollback_file}")
+            except Exception:  # nosec B110
+                pass
+            try:
+                new_conn.disconnect()
+            except Exception:  # nosec B110  # pragma: no cover
+                pass
         except Exception:  # pragma: no cover  # nosec B110
             pass
 
