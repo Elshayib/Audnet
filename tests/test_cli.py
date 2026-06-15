@@ -18,15 +18,12 @@ def _disable_scrapli(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _real_import = _builtins.__import__
 
-    def _blocked_import(
-        name: str, *args: Any, **kwargs: Any
-    ) -> Any:
+    def _blocked_import(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "scrapli" or name.startswith("scrapli."):
             raise ImportError("scrapli not available in tests")
         return _real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(_builtins, "__import__", _blocked_import)
-
 
 
 runner = CliRunner()
@@ -1330,8 +1327,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
             ],
             catch_exceptions=False,
         )
@@ -1367,8 +1366,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
                 "--no-dry-run",
                 "--auto-approve",
             ],
@@ -1387,8 +1388,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(tmp_path / "nope.yaml"),
-                "--config", str(cfg),
+                "--inventory",
+                str(tmp_path / "nope.yaml"),
+                "--config",
+                str(cfg),
             ],
         )
         assert result.exit_code == 1
@@ -1407,8 +1410,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(tmp_path / "nope.txt"),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(tmp_path / "nope.txt"),
             ],
         )
         assert result.exit_code == 1
@@ -1432,10 +1437,13 @@ class TestCliRemediate:
             duration_seconds=0.1,
         )
 
-        inv = _write_inventory(tmp_path, devices=[
-            {"name": "rtr01", "host": "10.0.0.1", "username": "admin", "password": "x"},
-            {"name": "rtr02", "host": "10.0.0.2", "username": "admin", "password": "x"},
-        ])
+        inv = _write_inventory(
+            tmp_path,
+            devices=[
+                {"name": "rtr01", "host": "10.0.0.1", "username": "admin", "password": "x"},
+                {"name": "rtr02", "host": "10.0.0.2", "username": "admin", "password": "x"},
+            ],
+        )
         cfg = tmp_path / "snippet.txt"
         cfg.write_text("ntp server 1.1.1.1\n")
 
@@ -1443,9 +1451,12 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
-                "--device", "rtr01",
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
+                "--device",
+                "rtr01",
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -1468,9 +1479,12 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
-                "--device", "sw99",
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
+                "--device",
+                "sw99",
             ],
         )
         assert result.exit_code == 1
@@ -1488,8 +1502,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
             ],
         )
         assert result.exit_code == 1
@@ -1522,8 +1538,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -1557,8 +1575,10 @@ class TestCliRemediate:
             app,
             [
                 "remediate",
-                "--inventory", str(inv),
-                "--config", str(cfg),
+                "--inventory",
+                str(inv),
+                "--config",
+                str(cfg),
             ],
         )
         assert result.exit_code == 1, f"Output: {result.output}"
@@ -1566,6 +1586,7 @@ class TestCliRemediate:
     def test_help_output(self):
         """``remediate --help`` exits 0 and shows expected options."""
         import re
+
         result = runner.invoke(app, ["remediate", "--help"])
         assert result.exit_code == 0
         _ansi = re.compile(r"\x1b\[[0-9;]*m")
@@ -1574,3 +1595,121 @@ class TestCliRemediate:
         assert "--inventory" in clean
         assert "--dry-run" in clean
         assert "--no-dry-run" in clean
+
+    def _block_git_history_import(self) -> None:
+        """Block audnet.git_history from being imported (simulates missing GitPython)."""
+        import builtins as _builtins
+
+        self._real_import = _builtins.__import__
+
+        def _blocked(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "audnet.git_history":
+                raise ImportError("No module named 'git'")
+            return self._real_import(name, *args, **kwargs)
+
+        _builtins.__import__ = _blocked
+
+    def _restore_import(self) -> None:
+        import builtins as _builtins
+
+        _builtins.__import__ = self._real_import
+
+    def test_history_diff_gitpython_missing(self):
+        """history-diff shows friendly error when GitPython is not installed."""
+        self._block_git_history_import()
+        try:
+            result = runner.invoke(
+                app,
+                ["history-diff", "--device", "sandbox-c9k"],
+            )
+            assert result.exit_code == 1, f"Output: {result.output}"
+            assert "GitPython is not installed" in result.output
+        finally:
+            self._restore_import()
+
+    def test_history_show_gitpython_missing(self):
+        """history-show shows friendly error when GitPython is not installed."""
+        self._block_git_history_import()
+        try:
+            result = runner.invoke(
+                app,
+                ["history-show", "--device", "sandbox-c9k"],
+            )
+            assert result.exit_code == 1, f"Output: {result.output}"
+            assert "GitPython is not installed" in result.output
+        finally:
+            self._restore_import()
+
+    def test_history_log_gitpython_missing(self):
+        """history-log shows friendly error when GitPython is not installed."""
+        self._block_git_history_import()
+        try:
+            result = runner.invoke(
+                app,
+                ["history-log", "--device", "sandbox-c9k"],
+            )
+            assert result.exit_code == 1, f"Output: {result.output}"
+            assert "GitPython is not installed" in result.output
+        finally:
+            self._restore_import()
+
+    def test_rollback_gitpython_missing(self):
+        """rollback shows friendly error when GitPython is not installed."""
+        self._block_git_history_import()
+        try:
+            result = runner.invoke(
+                app,
+                ["rollback", "--device", "sandbox-c9k"],
+            )
+            assert result.exit_code == 1, f"Output: {result.output}"
+            assert "GitPython is not installed" in result.output
+        finally:
+            self._restore_import()
+
+    def test_history_diff_git_history_error(self):
+        """history-diff shows friendly error when GitHistoryError is raised."""
+        from audnet.exceptions import GitHistoryError
+
+        with patch("audnet.git_history.diff_configs", side_effect=GitHistoryError("test error")):
+            result = runner.invoke(
+                app,
+                ["history-diff", "--device", "sandbox-c9k"],
+            )
+        assert result.exit_code == 1, f"Output: {result.output}"
+        assert "test error" in result.output
+
+    def test_history_show_git_history_error(self):
+        """history-show shows friendly error when GitHistoryError is raised."""
+        from audnet.exceptions import GitHistoryError
+
+        with patch("audnet.git_history.get_config_at", side_effect=GitHistoryError("repo gone")):
+            result = runner.invoke(
+                app,
+                ["history-show", "--device", "sandbox-c9k"],
+            )
+        assert result.exit_code == 1, f"Output: {result.output}"
+        assert "repo gone" in result.output
+
+    def test_history_log_git_history_error(self):
+        """history-log shows friendly error when GitHistoryError is raised."""
+        from audnet.exceptions import GitHistoryError
+
+        with patch("audnet.git_history.get_config_history", side_effect=GitHistoryError("no repo")):
+            result = runner.invoke(
+                app,
+                ["history-log", "--device", "sandbox-c9k"],
+            )
+        assert result.exit_code == 1, f"Output: {result.output}"
+        assert "no repo" in result.output
+
+    def test_rollback_git_history_error(self):
+        """rollback shows friendly error when GitHistoryError is raised."""
+        from audnet.exceptions import GitHistoryError
+
+        with patch("audnet.git_history.rollback_config", side_effect=GitHistoryError("bad ref")):
+            result = runner.invoke(
+                app,
+                ["rollback", "--device", "sandbox-c9k"],
+            )
+        assert result.exit_code == 1, f"Output: {result.output}"
+        assert "bad ref" in result.output
