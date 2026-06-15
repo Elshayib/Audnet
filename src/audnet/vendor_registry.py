@@ -277,13 +277,9 @@ def detect_vendor(sys_descr: str) -> str:
     text = sys_descr.strip()
     for pattern, device_type in _DETECTION_RULES:
         if pattern.lower() in text.lower():
-            logger.info(
-                "Detected vendor '%s' from sysDescr match: '%s'", device_type, pattern
-            )
+            logger.info("Detected vendor '%s' from sysDescr match: '%s'", device_type, pattern)
             return device_type
-    logger.warning(
-        "Could not detect vendor from sysDescr, falling back to '%s'", _DEFAULT_VENDOR
-    )
+    logger.warning("Could not detect vendor from sysDescr, falling back to '%s'", _DEFAULT_VENDOR)
     return _DEFAULT_VENDOR
 
 
@@ -312,7 +308,6 @@ async def detect_vendor_snmp(
             ObjectType,
             SnmpEngine,
             UdpTransportTarget,
-            getCmd,
         )
     except ImportError:
         logger.warning(
@@ -322,7 +317,12 @@ async def detect_vendor_snmp(
         return _DEFAULT_VENDOR
 
     try:
-        iterator = getCmd(
+        from pysnmp.hlapi.asyncio import get_cmd as _get_cmd  # pysnmp 7.x
+    except ImportError:
+        from pysnmp.hlapi.asyncio import getCmd as _get_cmd  # pysnmp 4.x
+
+    try:
+        iterator = _get_cmd(
             SnmpEngine(),
             CommunityData(community),
             UdpTransportTarget((host, port), timeout=timeout, retries=1),
