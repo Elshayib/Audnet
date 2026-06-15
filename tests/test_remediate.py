@@ -208,6 +208,7 @@ class TestApplyConfig:
     @pytest.fixture
     def device(self):
         from audnet.models import Device
+
         return Device(
             name="rtr01",
             host="10.0.0.1",
@@ -239,10 +240,14 @@ class TestApplyConfig:
     def test_idempotent_skip(self, device):
         """If config already present, should skip."""
         mock_conn = MagicMock()
-        mock_conn.send_command.return_value = "hostname rtr01\nntp server 10.0.0.1\nntp server 10.0.0.2\n"
+        mock_conn.send_command.return_value = (
+            "hostname rtr01\nntp server 10.0.0.1\nntp server 10.0.0.2\n"
+        )
 
         with patch("audnet.remediate._connect", return_value=mock_conn):
-            result = apply_config(device, ["ntp server 10.0.0.1", "ntp server 10.0.0.2"], dry_run=False)
+            result = apply_config(
+                device, ["ntp server 10.0.0.1", "ntp server 10.0.0.2"], dry_run=False
+            )
 
         assert result.status == RemediationStatus.SKIPPED
         assert result.success is True
@@ -252,11 +257,16 @@ class TestApplyConfig:
         mock_conn = MagicMock()
         mock_conn.send_command.return_value = "hostname rtr01\nntp server 10.0.0.1\n"
 
-        with patch("audnet.remediate._connect", return_value=mock_conn), \
-             patch("audnet.remediate.ApprovalGate.request_approval", return_value=True):
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+        ):
             result = apply_config(
-                device, ["ntp server 10.0.0.1"],
-                dry_run=False, force=True, auto_approve=True,
+                device,
+                ["ntp server 10.0.0.1"],
+                dry_run=False,
+                force=True,
+                auto_approve=True,
             )
 
         # Should not be skipped — force=True means we proceed
@@ -278,8 +288,10 @@ class TestApplyConfig:
         mock_conn = MagicMock()
         mock_conn.send_command.return_value = "hostname rtr01\n"
 
-        with patch("audnet.remediate._connect", return_value=mock_conn), \
-             patch("audnet.remediate.ApprovalGate.request_approval", return_value=False):
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=False),
+        ):
             result = apply_config(device, config_snippet, dry_run=False)
 
         assert result.status == RemediationStatus.FAILED
@@ -295,8 +307,10 @@ class TestApplyConfig:
         ]
         mock_conn.send_config_set.return_value = "Config applied"
 
-        with patch("audnet.remediate._connect", return_value=mock_conn), \
-             patch("audnet.remediate.ApprovalGate.request_approval", return_value=True):
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+        ):
             result = apply_config(device, config_snippet, dry_run=False, auto_approve=True)
 
         assert result.status == RemediationStatus.SUCCESS
@@ -314,9 +328,11 @@ class TestApplyConfig:
         ]
         mock_conn.send_config_set.return_value = "Config applied"
 
-        with patch("audnet.remediate._connect", return_value=mock_conn), \
-             patch("audnet.remediate.ApprovalGate.request_approval", return_value=True), \
-             patch("audnet.remediate._rollback_config", return_value="Rolled back"):
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+            patch("audnet.remediate._rollback_config", return_value="Rolled back"),
+        ):
             result = apply_config(device, config_snippet, dry_run=False, auto_approve=True)
 
         assert result.status == RemediationStatus.ROLLED_BACK
@@ -334,9 +350,14 @@ class TestApplyConfig:
         ]
         mock_conn.send_config_set.return_value = "Config applied"
 
-        with patch("audnet.remediate._connect", return_value=mock_conn), \
-             patch("audnet.remediate.ApprovalGate.request_approval", return_value=True), \
-             patch("audnet.remediate._rollback_config", side_effect=RemediationRollbackError("Rollback also failed")):
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+            patch(
+                "audnet.remediate._rollback_config",
+                side_effect=RemediationRollbackError("Rollback also failed"),
+            ),
+        ):
             result = apply_config(device, config_snippet, dry_run=False, auto_approve=True)
 
         assert result.status == RemediationStatus.FAILED
@@ -354,9 +375,22 @@ class TestRemediateDevices:
     @pytest.fixture
     def devices(self):
         from audnet.models import Device
+
         return [
-            Device(name="rtr01", host="10.0.0.1", device_type="cisco_ios", username="admin", password="secret"),
-            Device(name="rtr02", host="10.0.0.2", device_type="cisco_ios", username="admin", password="secret"),
+            Device(
+                name="rtr01",
+                host="10.0.0.1",
+                device_type="cisco_ios",
+                username="admin",
+                password="secret",
+            ),
+            Device(
+                name="rtr02",
+                host="10.0.0.2",
+                device_type="cisco_ios",
+                username="admin",
+                password="secret",
+            ),
         ]
 
     def test_dry_run_all_devices(self, devices):
@@ -365,7 +399,9 @@ class TestRemediateDevices:
             mock_apply.return_value = RemediationResult(
                 device_name="rtr01",
                 status=RemediationStatus.DRY_RUN,
-                diff=ConfigDiff(device_name="rtr01", added_lines=[], removed_lines=[], unchanged=True),
+                diff=ConfigDiff(
+                    device_name="rtr01", added_lines=[], removed_lines=[], unchanged=True
+                ),
             )
             results = remediate_devices(devices, ["ntp server 10.0.0.1"], dry_run=True)
 
@@ -379,7 +415,9 @@ class TestRemediateDevices:
                 RemediationResult(
                     device_name="rtr01",
                     status=RemediationStatus.FAILED,
-                    diff=ConfigDiff(device_name="rtr01", added_lines=[], removed_lines=[], unchanged=True),
+                    diff=ConfigDiff(
+                        device_name="rtr01", added_lines=[], removed_lines=[], unchanged=True
+                    ),
                     error="Connection refused",
                 ),
                 # rtr02 should be skipped
@@ -399,9 +437,16 @@ class TestRemediateDevices:
             mock_apply.return_value = RemediationResult(
                 device_name="rtr01",
                 status=RemediationStatus.SUCCESS,
-                diff=ConfigDiff(device_name="rtr01", added_lines=["ntp server 10.0.0.1"], removed_lines=[], unchanged=False),
+                diff=ConfigDiff(
+                    device_name="rtr01",
+                    added_lines=["ntp server 10.0.0.1"],
+                    removed_lines=[],
+                    unchanged=False,
+                ),
             )
-            results = remediate_devices(devices, ["ntp server 10.0.0.1"], dry_run=False, auto_approve=True)
+            results = remediate_devices(
+                devices, ["ntp server 10.0.0.1"], dry_run=False, auto_approve=True
+            )
 
         assert len(results) == 2
         assert all(r.status == RemediationStatus.SUCCESS for r in results)
@@ -417,26 +462,62 @@ class TestRollbackConfig:
     """Tests for the _rollback_config function."""
 
     def test_configure_replace_success(self):
-        """Should try configure replace first."""
+        """Should try configure replace first with timing-based output."""
         mock_conn = MagicMock()
         mock_conn.send_command.side_effect = [
             "Copy successful",  # copy running-config flash:...
-            "Rollback successful",  # configure replace
             "Delete successful",  # delete flash:...
+        ]
+        mock_conn.send_command_timing.side_effect = [
+            "Rollback successful",  # configure replace flash:... force
         ]
 
         from audnet.remediate import _rollback_config
+
         result = _rollback_config(mock_conn, "hostname rtr01\n")
         assert "Rollback successful" in result
 
-    def test_fallback_to_line_by_line(self):
-        """If configure replace fails, should fall back to line-by-line."""
+    def test_configure_replace_with_confirmation(self):
+        """Should handle [y/n] confirmation prompt from configure replace."""
         mock_conn = MagicMock()
-        # First strategy (configure replace) fails on copy
+        mock_conn.send_command.side_effect = [
+            "Copy successful",  # copy running-config flash:...
+            "Delete successful",  # delete flash:...
+        ]
+        mock_conn.send_command_timing.side_effect = [
+            "This will apply the following configuration:\nAre you sure? [y/n]",  # configure replace
+            "Confirmed",  # y
+        ]
+
+        from audnet.remediate import _rollback_config
+
+        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        assert "Confirmed" in result
+
+    def test_netmiko_rollback_fallback(self):
+        """Should try Netmiko built-in rollback if configure replace fails."""
+        mock_conn = MagicMock()
+        # configure replace fails
         mock_conn.send_command.side_effect = Exception("copy failed")
-        # Line-by-line also fails
+        mock_conn.send_command_timing.side_effect = Exception("timing failed")
+        # Netmiko rollback succeeds
+        mock_conn.rollback.return_value = "Netmiko rollback ok"
+
+        from audnet.remediate import _rollback_config
+
+        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        assert "Netmiko rollback ok" in result
+
+    def test_fallback_to_line_by_line(self):
+        """If all strategies fail, should raise RemediationRollbackError."""
+        mock_conn = MagicMock()
+        # All strategies fail
+        mock_conn.send_command.side_effect = Exception("copy failed")
+        mock_conn.send_command_timing.side_effect = Exception("timing failed")
+        mock_conn.rollback.side_effect = Exception("rollback not supported")
         mock_conn.send_config_set.side_effect = Exception("line-by-line failed")
 
         from audnet.remediate import _rollback_config
+
         with pytest.raises(RemediationRollbackError):
             _rollback_config(mock_conn, "hostname rtr01\n")

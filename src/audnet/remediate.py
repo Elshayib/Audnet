@@ -64,6 +64,7 @@ class RemediationStatus(Enum):
 @dataclasses.dataclass
 class ConfigDiff:
     """Represents the diff between current and desired config."""
+
     device_name: str
     added_lines: list[str]
     removed_lines: list[str]
@@ -87,6 +88,7 @@ class ConfigDiff:
 @dataclasses.dataclass
 class RemediationResult:
     """Result of a remediation attempt."""
+
     device_name: str
     status: RemediationStatus
     diff: ConfigDiff
@@ -102,7 +104,11 @@ class RemediationResult:
 
     @property
     def success(self) -> bool:
-        return self.status in (RemediationStatus.SUCCESS, RemediationStatus.DRY_RUN, RemediationStatus.SKIPPED)
+        return self.status in (
+            RemediationStatus.SUCCESS,
+            RemediationStatus.DRY_RUN,
+            RemediationStatus.SKIPPED,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +145,11 @@ class ApprovalGate:
             return True
 
         # Interactive CLI confirmation
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"REMEDIATION APPVAL REQUIRED for {device_name}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(str(diff))
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         try:
             response = input("Apply changes? [y/N]: ").strip().lower()
@@ -261,7 +267,9 @@ def apply_config(
         return RemediationResult(
             device_name=device_name,
             status=RemediationStatus.FAILED,
-            diff=ConfigDiff(device_name=device_name, added_lines=[], removed_lines=[], unchanged=True),
+            diff=ConfigDiff(
+                device_name=device_name, added_lines=[], removed_lines=[], unchanged=True
+            ),
             error=str(exc),
             duration_seconds=time.monotonic() - start,
         )
@@ -273,7 +281,9 @@ def apply_config(
         return RemediationResult(
             device_name=device_name,
             status=RemediationStatus.FAILED,
-            diff=ConfigDiff(device_name=device_name, added_lines=[], removed_lines=[], unchanged=True),
+            diff=ConfigDiff(
+                device_name=device_name, added_lines=[], removed_lines=[], unchanged=True
+            ),
             error=f"Failed to get running config: {exc}",
             duration_seconds=time.monotonic() - start,
         )
@@ -284,8 +294,12 @@ def apply_config(
     diff = compute_diff(current_lines, config_snippet)
     diff.device_name = device_name
 
-    logger.info("Diff for %s: %d lines to add, unchanged=%s",
-                device_name, len(diff.added_lines), diff.unchanged)
+    logger.info(
+        "Diff for %s: %d lines to add, unchanged=%s",
+        device_name,
+        len(diff.added_lines),
+        diff.unchanged,
+    )
 
     # Step 3: Idempotent no-op detection
     if diff.unchanged and not force:
@@ -386,7 +400,8 @@ def apply_config(
             except Exception as rollback_exc:
                 logger.critical(
                     "ROLLBACK FAILED for %s: %s. Manual intervention required.",
-                    device_name, rollback_exc,
+                    device_name,
+                    rollback_exc,
                 )
                 return RemediationResult(
                     device_name=device_name,
@@ -411,12 +426,16 @@ def apply_config(
             conn.disconnect()
         except Exception:  # pragma: no cover  # nosec B110
             pass
+
+
 def _rollback_config(conn: Any, previous_config: str) -> str:
     """Attempt to rollback to a previous config.
 
     Strategy:
-    1. Try 'configure replace' (IOS/IOS-XE native rollback)
+    1. Try 'configure replace' with timing-based output (avoids prompt pattern
+       mismatch on IOS-XE configure replace interactive output)
     2. Fall back to applying the previous config lines
+    3. Try Netmiko's built-in rollback if available
 
     Args:
         conn: Active Netmiko connection
@@ -428,34 +447,59 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
     Raises:
         RemediationRollbackError: If rollback fails
     """
-    # Strategy 1: Try configure replace (if supported)
+    rollback_file = f"_audnet_rollback_{int(time.time())}"
+
+    # Strategy 1: configure replace with timing-based output
     try:
-        # Save previous config to a file on the device and use configure replace
-        # This is the safest method on IOS/IOS-XE
-        rollback_file = f"_audnet_rollback_{int(time.time())}"
+        # Save previous config to a file on the device
         conn.send_command(f"copy running-config flash:{rollback_file}")
-        output = conn.send_command(
+
+        # Use send_command_timing to handle interactive output from
+        # configure replace on IOS-XE, which produces intermediate prompts
+        # (e.g., "Are you sure? [y/n]") that don't match the standard prompt.
+        output = conn.send_command_timing(
             f"configure replace flash:{rollback_file} force",
-            read_timeout=60,
+            read_timeout=120,
         )
+
+        # Handle any confirmation prompts (e.g., "[y/n]", "[yes/no]")
+        if "y/n" in output.lower() or "yes/no" in output.lower():
+            output += conn.send_command_timing("y", read_timeout=120)
+
+        logger.info("configure replace rollback succeeded")
+
         # Clean up rollback file
         try:  # pragma: no cover
             conn.send_command(f"delete flash:{rollback_file}")
         except Exception:  # pragma: no cover  # nosec B110
             pass
+
         return str(output)
     except Exception as exc:  # pragma: no cover
-        logger.warning("configure replace rollback failed: %s, trying line-by-line", exc)
+        logger.warning("configure replace rollback failed: %s, trying next strategy", exc)
 
-    # Strategy 2: Line-by-line rollback (fallback)
+    # Strategy 2: Netmiko built-in rollback (if supported by driver)
     try:
+        if hasattr(conn, "rollback") and callable(conn.rollback):
+            output = conn.rollback()
+            logger.info("Netmiko rollback succeeded")
+            # Clean up rollback file if it still exists
+            try:  # pragma: no cover
+                conn.send_command(f"delete flash:{rollback_file}")
+            except Exception:  # pragma: no cover  # nosec B110
+                pass
+            return str(output)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Netmiko rollback failed: %s, trying line-by-line", exc)
+
+    # Strategy 3: Line-by-line rollback (last resort)
+    try:
+        # Apply only the diff-relevant lines, not the full config
         lines = [line for line in previous_config.splitlines() if line.strip()]
         output = conn.send_config_set(lines, exit_config_mode=True)
         return str(output)  # pragma: no cover
     except Exception as exc:  # pragma: no cover
-        raise RemediationRollbackError(
-            f"Line-by-line rollback also failed: {exc}"
-        ) from exc
+        raise RemediationRollbackError(f"Line-by-line rollback also failed: {exc}") from exc
 
 
 def remediate_devices(
@@ -500,21 +544,24 @@ def remediate_devices(
         if not result.success and not dry_run:
             logger.error(
                 "Remediation failed for %s — stopping pipeline. Error: %s",
-                device.name, result.error,
+                device.name,
+                result.error,
             )
             # Mark remaining devices as skipped
-            for remaining in devices[len(results):]:
-                results.append(RemediationResult(
-                    device_name=remaining.name,
-                    status=RemediationStatus.SKIPPED,
-                    diff=ConfigDiff(
+            for remaining in devices[len(results) :]:
+                results.append(
+                    RemediationResult(
                         device_name=remaining.name,
-                        added_lines=[],
-                        removed_lines=[],
-                        unchanged=True,
-                    ),
-                    error="Skipped due to previous failure",
-                ))
+                        status=RemediationStatus.SKIPPED,
+                        diff=ConfigDiff(
+                            device_name=remaining.name,
+                            added_lines=[],
+                            removed_lines=[],
+                            unchanged=True,
+                        ),
+                        error="Skipped due to previous failure",
+                    )
+                )
             break
 
     return results
