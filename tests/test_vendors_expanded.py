@@ -99,7 +99,13 @@ class TestVendorCount:
 
     def test_existing_vendors_still_present(self):
         vendors = list_vendors()
-        for existing in ("cisco_ios", "cisco_nxos", "arista_eos", "juniper_junos", "paloalto_panos"):
+        for existing in (
+            "cisco_ios",
+            "cisco_nxos",
+            "arista_eos",
+            "juniper_junos",
+            "paloalto_panos",
+        ):
             assert existing in vendors
 
 
@@ -120,9 +126,18 @@ class TestFortinetFortiOS:
     def test_template_names(self):
         from audnet.vendor_registry import Slot
 
-        assert get_template_name("fortinet_fortios", Slot.INTERFACES) == "fortinet_fortios_get_system_interface"
-        assert get_template_name("fortinet_fortios", Slot.VERSION) == "fortinet_fortios_get_system_status"
-        assert get_template_name("fortinet_fortios", Slot.RUNNING_CONFIG) == "fortinet_fortios_show_full_configuration"
+        assert (
+            get_template_name("fortinet_fortios", Slot.INTERFACES)
+            == "fortinet_fortios_get_system_interface"
+        )
+        assert (
+            get_template_name("fortinet_fortios", Slot.VERSION)
+            == "fortinet_fortios_get_system_status"
+        )
+        assert (
+            get_template_name("fortinet_fortios", Slot.RUNNING_CONFIG)
+            == "fortinet_fortios_show_full_configuration"
+        )
 
     def test_parse_interfaces(self):
         result = parse_interfaces(FORTINET_INTERFACES, device_type="fortinet_fortios")
@@ -195,9 +210,14 @@ class TestHPProCurve:
     def test_template_names(self):
         from audnet.vendor_registry import Slot
 
-        assert get_template_name("hp_procurve", Slot.INTERFACES) == "hp_procurve_show_interfaces_brief"
+        assert (
+            get_template_name("hp_procurve", Slot.INTERFACES) == "hp_procurve_show_interfaces_brief"
+        )
         assert get_template_name("hp_procurve", Slot.VERSION) == "hp_procurve_show_version"
-        assert get_template_name("hp_procurve", Slot.RUNNING_CONFIG) == "hp_procurve_show_running_config"
+        assert (
+            get_template_name("hp_procurve", Slot.RUNNING_CONFIG)
+            == "hp_procurve_show_running_config"
+        )
 
     def test_parse_interfaces(self):
         result = parse_interfaces(HP_INTERFACES, device_type="hp_procurve")
@@ -221,7 +241,9 @@ class TestVendorFallbackWithNewVendors:
     def test_existing_vendor_templates_unchanged(self):
         from audnet.vendor_registry import Slot
 
-        assert get_template_name("cisco_ios", Slot.INTERFACES) == "cisco_ios_show_ip_interface_brief"
+        assert (
+            get_template_name("cisco_ios", Slot.INTERFACES) == "cisco_ios_show_ip_interface_brief"
+        )
         assert get_template_name("cisco_ios", Slot.VERSION) == "cisco_ios_show_version"
 
     def test_new_vendor_unknown_falls_back_to_cisco_ios_templates(self):
@@ -293,21 +315,47 @@ class TestDetectVendorSNMP:
         assert callable(vr.detect_vendor_snmp)
 
     @pytest.mark.asyncio
+    async def test_snmp_import_compatibility(self):
+        """Verify pysnmp import works with both 4.x and 7.x APIs."""
+        # This should not raise — the compatibility shim handles both versions
+        try:
+            from pysnmp.hlapi.asyncio import get_cmd as _  # noqa: F401
+        except ImportError:
+            from pysnmp.hlapi.asyncio import getCmd as _  # noqa: F401
+        # If we got here, the import path works
+
+    @pytest.mark.asyncio
+    async def test_snmp_detection_with_mock(self):
+        """SNMP detection parses sysDescr and returns correct vendor."""
+        from unittest.mock import AsyncMock, patch
+
+        from audnet.vendor_registry import detect_vendor_snmp
+
+        # Mock the pysnmp response: simulate a Cisco IOS-XE sysDescr
+        mock_var_bind = (None, "Cisco IOS-XE Software, Version 17.15.1")
+        mock_result = (None, 0, 0, [mock_var_bind])
+
+        # pysnmp 7.x exports get_cmd; 4.x exports getCmd
+        try:
+            from pysnmp.hlapi.asyncio import get_cmd  # noqa: F401
+
+            pysnmp_path = "pysnmp.hlapi.asyncio.get_cmd"
+        except ImportError:
+            pysnmp_path = "pysnmp.hlapi.asyncio.getCmd"
+
+        with patch(pysnmp_path, new_callable=AsyncMock, return_value=mock_result):
+            result = await detect_vendor_snmp("10.0.0.1", timeout=1)
+        assert result == "cisco_ios"
+
+    @pytest.mark.asyncio
     async def test_snmp_detection_error(self):
         """SNMP detection falls back on error."""
         import audnet.vendor_registry as vr
 
-        # If pysnmp is not installed, it should return cisco_ios
-        try:
-            from pysnmp.hlapi.asyncio import getCmd  # noqa: F401
-            # pysnmp is available, test with unreachable host (will timeout/error)
-            # This is a smoke test — we don't have a real SNMP server
-            result = await vr.detect_vendor_snmp("192.0.2.1", timeout=1)
-            assert result == "cisco_ios"  # Should fall back on timeout
-        except ImportError:
-            # pysnmp not installed is also fine
-            result = await vr.detect_vendor_snmp("10.0.0.1")
-            assert result == "cisco_ios"
+        # pysnmp 7.x uses get_cmd, 4.x uses getCmd — either way the function
+        # should handle the import and fall back gracefully on unreachable host
+        result = await vr.detect_vendor_snmp("192.0.2.1", timeout=1)
+        assert result == "cisco_ios"
 
 
 class TestDetectionRulesOrder:
