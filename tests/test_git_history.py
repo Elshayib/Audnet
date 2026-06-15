@@ -97,10 +97,94 @@ class TestSanitizeConfig:
         assert "private" not in result
         assert result.count("REDACTED") == 2
 
+    def test_redacts_username_password(self):
+        """Mid-line: 'username <user> password <level> <secret>' is redacted."""
+        config = "username admin password 0 MyP@ssw0rd123\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "MyP@ssw0rd123" not in result
 
-# ---------------------------------------------------------------------------
-# init_git_repo
-# ---------------------------------------------------------------------------
+    def test_redacts_ip_ftp_password(self):
+        """Mid-line: 'ip ftp password <secret>' is redacted."""
+        config = "ip ftp password 0 ftppass\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "ftppass" not in result
+
+    def test_redacts_tacacs_server_key(self):
+        """Mid-line: 'tacacs-server key <secret>' is redacted."""
+        config = "tacacs-server key MyTACACSkey\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "MyTACACSkey" not in result
+
+    def test_redacts_ntp_authentication_key(self):
+        """Mid-line: 'ntp authentication-key <id> md5 <secret>' is redacted."""
+        config = "ntp authentication-key 1 md5 SecretNTPKey\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "SecretNTPKey" not in result
+
+    def test_redacts_crypto_isakmp_key(self):
+        """Mid-line: 'crypto isakmp key <secret> address <ip>' is redacted."""
+        config = "crypto isakmp key MyVPNkey address 10.0.0.1\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "MyVPNkey" not in result
+
+    def test_redacts_crypto_ike_key(self):
+        """Mid-line: 'crypto ike key <secret>' is redacted."""
+        config = "crypto ike key MyIKEkey\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "MyIKEkey" not in result
+
+    def test_redacts_neighbor_bgp_password(self):
+        """Mid-line: 'neighbor <ip> bgp password <secret>' is redacted."""
+        config = "neighbor 10.0.0.2 bgp password BGPPassword\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "BGPPassword" not in result
+
+    def test_redacts_neighbor_password(self):
+        """Mid-line: 'neighbor <ip> password <secret>' is redacted."""
+        config = "neighbor 10.0.0.2 password PeerPass\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "PeerPass" not in result
+
+    def test_redacts_service_password_encryption(self):
+        """Mid-line: 'service password-encryption' is redacted."""
+        config = "service password-encryption\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+
+    def test_midline_case_insensitive(self):
+        """Mid-line patterns are case-insensitive."""
+        config = "USERNAME admin PASSWORD 0 Secret\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "Secret" not in result
+
+    def test_midline_mixed_with_plain(self):
+        """Config with both start-of-line and mid-line sensitive lines."""
+        config = (
+            "hostname rtr01\n"
+            "password linepassword\n"
+            "username admin password 0 userpass\n"
+            "interface Gig0/0\n"
+            " ip address 10.0.0.1 255.255.255.0\n"
+            "tacacs-server key tackey\n"
+            "!\n"
+        )
+        result = sanitize_config(config, "rtr01")
+        assert "hostname rtr01" in result
+        assert "interface Gig0/0" in result
+        assert "ip address 10.0.0.1" in result
+        assert "linepassword" not in result
+        assert "userpass" not in result
+        assert "tackey" not in result
+        assert result.count("REDACTED") == 3
 
 
 class TestInitGitRepo:
@@ -316,12 +400,8 @@ class TestDiffConfigs:
         save_config_snapshot({"rtr01": "hostname rtr01\n"}, history_dir=repo_path)
         # Both saves of same content return None after the first
         # We need to test with actual changes
-        save_config_snapshot(
-            {"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path
-        )
-        save_config_snapshot(
-            {"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path
-        )
+        save_config_snapshot({"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path)
+        save_config_snapshot({"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path)
         # The second one returns None, so diff between HEAD~1 and HEAD
         # shows the first change
         diff = diff_configs("rtr01", "HEAD~1", "HEAD", history_dir=repo_path)
@@ -416,9 +496,12 @@ class TestCliGitHistory:
             [
                 "audit",
                 "--dry-run",
-                "--inventory", str(tmp_path / "nonexistent.yaml"),
-                "--baseline", str(tmp_path / "nonexistent.yaml"),
-                "--git-history-dir", str(git_dir),
+                "--inventory",
+                str(tmp_path / "nonexistent.yaml"),
+                "--baseline",
+                str(tmp_path / "nonexistent.yaml"),
+                "--git-history-dir",
+                str(git_dir),
             ],
         )
         # Should fail because inventory doesn't exist
@@ -432,15 +515,15 @@ class TestCliGitHistory:
         runner = CliRunner()
         repo_path = tmp_path / "git-repo"
         save_config_snapshot({"rtr01": "hostname rtr01\n"}, history_dir=repo_path)
-        save_config_snapshot(
-            {"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path
-        )
+        save_config_snapshot({"rtr01": "hostname rtr01\ninterface Gig0/0\n"}, history_dir=repo_path)
         result = runner.invoke(
             app,
             [
                 "history-diff",
-                "--device", "rtr01",
-                "--history-dir", str(repo_path),
+                "--device",
+                "rtr01",
+                "--history-dir",
+                str(repo_path),
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -457,8 +540,10 @@ class TestCliGitHistory:
             app,
             [
                 "history-show",
-                "--device", "rtr01",
-                "--history-dir", str(repo_path),
+                "--device",
+                "rtr01",
+                "--history-dir",
+                str(repo_path),
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -476,8 +561,10 @@ class TestCliGitHistory:
             app,
             [
                 "history-log",
-                "--device", "rtr01",
-                "--history-dir", str(repo_path),
+                "--device",
+                "rtr01",
+                "--history-dir",
+                str(repo_path),
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -496,9 +583,12 @@ class TestCliGitHistory:
             app,
             [
                 "rollback",
-                "--device", "rtr01",
-                "--ref", "HEAD~1",
-                "--history-dir", str(repo_path),
+                "--device",
+                "rtr01",
+                "--ref",
+                "HEAD~1",
+                "--history-dir",
+                str(repo_path),
             ],
         )
         assert result.exit_code == 0, f"Output: {result.output}"
@@ -517,9 +607,12 @@ class TestCliGitHistory:
             app,
             [
                 "rollback",
-                "--device", "rtr01",
-                "--ref", "HEAD~1",
-                "--history-dir", str(repo_path),
+                "--device",
+                "rtr01",
+                "--ref",
+                "HEAD~1",
+                "--history-dir",
+                str(repo_path),
                 "--no-dry-run",
             ],
         )
@@ -538,8 +631,10 @@ class TestCliGitHistory:
             app,
             [
                 "history-show",
-                "--device", "nonexistent",
-                "--history-dir", str(repo_path),
+                "--device",
+                "nonexistent",
+                "--history-dir",
+                str(repo_path),
             ],
         )
         assert result.exit_code == 1
@@ -556,8 +651,10 @@ class TestCliGitHistory:
             [
                 "audit",
                 "--dry-run",
-                "--inventory", "nonexistent.yaml",
-                "--baseline", "nonexistent.yaml",
+                "--inventory",
+                "nonexistent.yaml",
+                "--baseline",
+                "nonexistent.yaml",
                 "--no-git-history",
             ],
         )
@@ -604,9 +701,7 @@ class TestEdgeCases:
     def test_multiple_saves_same_device(self, tmp_path: Path):
         repo_path = tmp_path / "git-repo"
         for i in range(10):
-            save_config_snapshot(
-                {"rtr01": f"hostname rtr01\nversion {i}\n"}, history_dir=repo_path
-            )
+            save_config_snapshot({"rtr01": f"hostname rtr01\nversion {i}\n"}, history_dir=repo_path)
         history = get_config_history("rtr01", history_dir=repo_path)
         assert len(history) == 10
         # Newest first

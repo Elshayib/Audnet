@@ -38,6 +38,7 @@ __all__ = [
 _DEFAULT_GIT_DIR = Path.home() / ".net-audit" / "git-config-history"
 
 # Patterns for lines that should never be committed to a public/non-encrypted repo.
+# Start-of-line patterns: keyword must be the first word (after optional whitespace).
 _SENSITIVE_LINE_RE = re.compile(
     r"""
     ^\s*(
@@ -56,6 +57,24 @@ _SENSITIVE_LINE_RE = re.compile(
         |auth-key
         |priv-key
         |-----BEGIN\s.*PRIVATE\sKEY-----
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Mid-line patterns: sensitive keyword appears after a prefix (e.g. "username admin password ...").
+# These match the keyword anywhere in the line, but require a word boundary before it
+# to avoid false positives.
+_SENSITIVE_MIDLINE_RE = re.compile(
+    r"""
+    (
+        username\s+\S+\s+password
+        |ip\s+ftp\s+password
+        |tacacs-server\s+key
+        |ntp\s+authentication-key
+        |crypto\s+(?:isakmp|ike)\s+key
+        |neighbor\s+\S+\s+(?:bgp\s+)?password
+        |service\s+password-encryption
     )
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -80,7 +99,7 @@ def sanitize_config(raw_config: str, device_name: str) -> str:
     lines = raw_config.splitlines(keepends=True)
     sanitized: list[str] = []
     for line in lines:
-        if _SENSITIVE_LINE_RE.search(line):
+        if _SENSITIVE_LINE_RE.search(line) or _SENSITIVE_MIDLINE_RE.search(line):
             sanitized.append(f"! [REDACTED by audnet — {device_name}]\n")
         else:
             sanitized.append(line)
@@ -90,9 +109,7 @@ def sanitize_config(raw_config: str, device_name: str) -> str:
 def _require_gitpython() -> None:
     """Raise GitHistoryError if GitPython is not installed."""
     if gitpython is None:
-        raise GitHistoryError(
-            "GitPython is not installed. Install it with: pip install GitPython"
-        )
+        raise GitHistoryError("GitPython is not installed. Install it with: pip install GitPython")
 
 
 def init_git_repo(
@@ -153,6 +170,7 @@ def _configure_repo(repo: gitpython.Repo) -> None:
         repo_cfg_path = Path(git_dir) / "config"
         if repo_cfg_path.exists():
             import configparser
+
             parser = configparser.ConfigParser()
             parser.read(str(repo_cfg_path))
             has_name = parser.has_option("user", "name")
@@ -318,9 +336,7 @@ def get_config_history(
             config_text = blob.data_stream.read().decode("utf-8")
         except KeyError:
             config_text = ""
-        committed_dt = datetime.fromtimestamp(
-            commit.committed_date, tz=timezone.utc
-        )
+        committed_dt = datetime.fromtimestamp(commit.committed_date, tz=timezone.utc)
         results.append(
             {
                 "commit_sha": commit.hexsha,
@@ -408,9 +424,7 @@ def rollback_config(
 
     target_config = get_config_at(device_name, commit_ref, history_dir=history_dir)
     if target_config is None:
-        raise GitHistoryError(
-            f"No config found for device '{device_name}' at ref '{commit_ref}'"
-        )
+        raise GitHistoryError(f"No config found for device '{device_name}' at ref '{commit_ref}'")
 
     target_commit = repo.commit(commit_ref)
 
