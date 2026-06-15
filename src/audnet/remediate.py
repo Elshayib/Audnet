@@ -301,22 +301,22 @@ def apply_config(
         diff.unchanged,
     )
 
-    # Step 3: Idempotent no-op detection
-    if diff.unchanged and not force:
-        logger.info("No changes needed for %s (idempotent)", device_name)
-        return RemediationResult(
-            device_name=device_name,
-            status=RemediationStatus.SKIPPED,
-            diff=diff,
-            duration_seconds=time.monotonic() - start,
-        )
-
-    # Step 4: Dry run — return diff without applying
+    # Step 3: Dry run — return diff without applying
     if dry_run:
         logger.info("Dry run for %s — not applying changes", device_name)
         return RemediationResult(
             device_name=device_name,
             status=RemediationStatus.DRY_RUN,
+            diff=diff,
+            duration_seconds=time.monotonic() - start,
+        )
+
+    # Step 4: Idempotent no-op detection
+    if diff.unchanged and not force:
+        logger.info("No changes needed for %s (idempotent)", device_name)
+        return RemediationResult(
+            device_name=device_name,
+            status=RemediationStatus.SKIPPED,
             diff=diff,
             duration_seconds=time.monotonic() - start,
         )
