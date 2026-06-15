@@ -714,6 +714,113 @@ class TestComplianceEdgeCases:
         # Short line skipped, no valid servers -> violations empty -> passes
         assert r.passed is True
 
+    def test_ntp_vrf_syntax_server_approved(self):
+        """IOS-XE 'ntp server vrf <name> <ip>' with approved IP passes."""
+        snap = _snap(
+            "rtr01",
+            ["ntp server 10.0.0.1", "ntp server vrf Mgmt-vrf 10.0.0.1"],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        assert r.passed is True
+
+    def test_ntp_vrf_syntax_server_unapproved(self):
+        """IOS-XE 'ntp server vrf <name> <ip>' with unapproved IP fails."""
+        snap = _snap(
+            "rtr01",
+            ["ntp server vrf Mgmt-vrf 8.8.8.8"],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        assert r.passed is False
+        assert "8.8.8.8" in r.detail
+        assert "vrf" not in r.detail
+
+    def test_ntp_vrf_mixed_with_plain(self):
+        """Mix of plain and VRF NTP lines: only unapproved IPs reported."""
+        snap = _snap(
+            "rtr01",
+            [
+                "ntp server 10.0.0.1",
+                "ntp server vrf Mgmt-vrf 10.0.0.1",
+                "ntp server vrf Mgmt-vrf 8.8.8.8",
+            ],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        assert r.passed is False
+        assert "8.8.8.8" in r.detail
+        assert "vrf" not in r.detail
+        assert "Mgmt-vrf" not in r.detail
+
+    def test_ntp_vrf_case_insensitive(self):
+        """VRF keyword is case-insensitive (VRF, vrf, Vrf all work)."""
+        snap = _snap(
+            "rtr01",
+            ["ntp server VRF Mgmt-vrf 8.8.8.8"],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        assert r.passed is False
+        assert "8.8.8.8" in r.detail
+        assert "VRF" not in r.detail
+
+    def test_ntp_vrf_too_short(self):
+        """'ntp server vrf <name>' without IP is skipped (len < 5)."""
+        snap = _snap(
+            "rtr01",
+            ["ntp server vrf Mgmt-vrf"],
+        )
+        bl = {
+            "checks": {
+                "ntp_config": {
+                    "severity": "high",
+                    "rule": "ntp_approved",
+                    "description": "",
+                    "approved_servers": ["10.0.0.1"],
+                }
+            }
+        }
+        r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
+        # Line has vrf but only 4 parts (len < 5), so it's skipped -> no violations -> passes
+        assert r.passed is True
+
     def test_syslog_short_line_no_valid_servers(self):
         """Syslog line with fewer than 3 parts is skipped, no valid servers found."""
         snap = _snap("rtr01", ["logging host"])
@@ -1205,67 +1312,134 @@ class TestVtyTimeout:
 
     def test_pass_within_limit(self):
         """Passes when exec-timeout is within the allowed limit."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " exec-timeout 5 0",
-            " login local",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " exec-timeout 5 0",
+                " login local",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {
+                    "severity": "high",
+                    "rule": "vty_timeout",
+                    "max_timeout_minutes": 10,
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is True
 
     def test_pass_at_boundary(self):
         """Passes when exec-timeout equals the max."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " exec-timeout 10 0",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " exec-timeout 10 0",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {
+                    "severity": "high",
+                    "rule": "vty_timeout",
+                    "max_timeout_minutes": 10,
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is True
 
     def test_fail_exceeds_limit(self):
         """Fails when exec-timeout exceeds the max."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " exec-timeout 15 0",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " exec-timeout 15 0",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {
+                    "severity": "high",
+                    "rule": "vty_timeout",
+                    "max_timeout_minutes": 10,
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is False
         assert "15min" in r.detail
 
     def test_fail_missing_timeout(self):
         """Fails when exec-timeout is missing from VTY block."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " login local",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " login local",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {
+                    "severity": "high",
+                    "rule": "vty_timeout",
+                    "max_timeout_minutes": 10,
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is False
         assert "missing" in r.detail.lower()
 
     def test_multiple_vty_ranges(self):
         """Checks multiple VTY line ranges."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " exec-timeout 5 0",
-            "line vty 5 15",
-            " exec-timeout 15 0",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "max_timeout_minutes": 10, "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " exec-timeout 5 0",
+                "line vty 5 15",
+                " exec-timeout 15 0",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {
+                    "severity": "high",
+                    "rule": "vty_timeout",
+                    "max_timeout_minutes": 10,
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is False
         assert "vty 5 15" in r.detail
 
     def test_default_max_timeout(self):
         """Uses default max_timeout_minutes of 10 when not specified."""
-        snap = self._snap("rtr01", [
-            "line vty 0 4",
-            " exec-timeout 11 0",
-        ])
-        bl = {"checks": {"vty_timeout": {"severity": "high", "rule": "vty_timeout", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "line vty 0 4",
+                " exec-timeout 11 0",
+            ],
+        )
+        bl = {
+            "checks": {
+                "vty_timeout": {"severity": "high", "rule": "vty_timeout", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "vty_timeout"][0]
         assert r.passed is False
 
@@ -1283,30 +1457,45 @@ class TestAaaAuth:
 
     def test_pass_both_present(self):
         """Passes when both aaa new-model and aaa authentication login default are present."""
-        snap = self._snap("rtr01", [
-            "aaa new-model",
-            "aaa authentication login default group tacacs+ local",
-        ])
-        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "aaa new-model",
+                "aaa authentication login default group tacacs+ local",
+            ],
+        )
+        bl = {
+            "checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
         assert r.passed is True
 
     def test_fail_missing_new_model(self):
         """Fails when aaa new-model is absent."""
-        snap = self._snap("rtr01", [
-            "aaa authentication login default group tacacs+ local",
-        ])
-        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "aaa authentication login default group tacacs+ local",
+            ],
+        )
+        bl = {
+            "checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
         assert r.passed is False
         assert "aaa new-model" in r.detail
 
     def test_fail_missing_auth_login(self):
         """Fails when aaa authentication login default is absent."""
-        snap = self._snap("rtr01", [
-            "aaa new-model",
-        ])
-        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "aaa new-model",
+            ],
+        )
+        bl = {
+            "checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
         assert r.passed is False
         assert "aaa authentication login default" in r.detail
@@ -1314,18 +1503,25 @@ class TestAaaAuth:
     def test_fail_both_missing(self):
         """Fails when both are absent (reports new-model missing first)."""
         snap = self._snap("rtr01", ["hostname rtr01"])
-        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        bl = {
+            "checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
         assert r.passed is False
         assert "aaa new-model" in r.detail
 
     def test_case_insensitive(self):
         """Check is case-insensitive."""
-        snap = self._snap("rtr01", [
-            "AAA NEW-MODEL",
-            "AAA AUTHENTICATION LOGIN DEFAULT group tacacs+ local",
-        ])
-        bl = {"checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "AAA NEW-MODEL",
+                "AAA AUTHENTICATION LOGIN DEFAULT group tacacs+ local",
+            ],
+        )
+        bl = {
+            "checks": {"aaa_auth": {"severity": "critical", "rule": "aaa_auth", "description": ""}}
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "aaa_auth"][0]
         assert r.passed is True
 
@@ -1344,21 +1540,45 @@ class TestPasswordEncryption:
     def test_pass_when_present(self):
         """Passes when service password-encryption is present."""
         snap = self._snap("rtr01", ["service password-encryption"])
-        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        bl = {
+            "checks": {
+                "password_encryption": {
+                    "severity": "high",
+                    "rule": "password_encryption",
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
         assert r.passed is True
 
     def test_fail_when_absent(self):
         """Fails when service password-encryption is absent."""
         snap = self._snap("rtr01", ["hostname rtr01"])
-        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        bl = {
+            "checks": {
+                "password_encryption": {
+                    "severity": "high",
+                    "rule": "password_encryption",
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
         assert r.passed is False
 
     def test_case_insensitive(self):
         """Check is case-insensitive."""
         snap = self._snap("rtr01", ["SERVICE PASSWORD-ENCRYPTION"])
-        bl = {"checks": {"password_encryption": {"severity": "high", "rule": "password_encryption", "description": ""}}}
+        bl = {
+            "checks": {
+                "password_encryption": {
+                    "severity": "high",
+                    "rule": "password_encryption",
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "password_encryption"][0]
         assert r.passed is True
 
@@ -1376,54 +1596,85 @@ class TestCdpDisabled:
 
     def test_pass_global_disable(self):
         """Passes when no cdp run is globally configured."""
-        snap = self._snap("rtr01", [
-            "no cdp run",
-            "interface GigabitEthernet0/0",
-        ])
-        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "no cdp run",
+                "interface GigabitEthernet0/0",
+            ],
+        )
+        bl = {
+            "checks": {
+                "cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
         assert r.passed is True
 
     def test_pass_per_interface_disable(self):
         """Passes when all interfaces have no cdp enable."""
-        snap = self._snap("rtr01", [
-            "interface GigabitEthernet0/0",
-            " no cdp enable",
-            "interface GigabitEthernet0/1",
-            " no cdp enable",
-        ], interfaces=[
-            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
-            {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
-        ])
-        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "interface GigabitEthernet0/0",
+                " no cdp enable",
+                "interface GigabitEthernet0/1",
+                " no cdp enable",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+                {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
         assert r.passed is True
 
     def test_fail_cdp_active_on_interface(self):
         """Fails when CDP is active on an interface without no cdp enable."""
-        snap = self._snap("rtr01", [
-            "interface GigabitEthernet0/0",
-            " ip address 10.0.0.1 255.255.255.0",
-        ], interfaces=[
-            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
-        ])
-        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "interface GigabitEthernet0/0",
+                " ip address 10.0.0.1 255.255.255.0",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
         assert r.passed is False
         assert "gigabitethernet0/0" in r.detail
 
     def test_fail_mixed_interfaces(self):
         """Fails listing only interfaces without CDP disabled."""
-        snap = self._snap("rtr01", [
-            "interface GigabitEthernet0/0",
-            " no cdp enable",
-            "interface GigabitEthernet0/1",
-            " ip address 10.0.0.2 255.255.255.0",
-        ], interfaces=[
-            {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
-            {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
-        ])
-        bl = {"checks": {"cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "interface GigabitEthernet0/0",
+                " no cdp enable",
+                "interface GigabitEthernet0/1",
+                " ip address 10.0.0.2 255.255.255.0",
+            ],
+            interfaces=[
+                {"interface": "GigabitEthernet0/0", "ip_address": "10.0.0.1"},
+                {"interface": "GigabitEthernet0/1", "ip_address": "10.0.0.2"},
+            ],
+        )
+        bl = {
+            "checks": {
+                "cdp_disabled": {"severity": "medium", "rule": "cdp_disabled", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "cdp_disabled"][0]
         assert r.passed is False
         assert "gigabitethernet0/1" in r.detail
@@ -1443,54 +1694,94 @@ class TestLoginBanner:
 
     def test_pass_banner_present(self):
         """Passes when banner login is configured."""
-        snap = self._snap("rtr01", [
-            "banner login ^",
-            "Authorized access only",
-            "^",
-        ])
-        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "banner login ^",
+                "Authorized access only",
+                "^",
+            ],
+        )
+        bl = {
+            "checks": {
+                "login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
         assert r.passed is True
 
     def test_fail_banner_missing(self):
         """Fails when banner login is absent."""
         snap = self._snap("rtr01", ["hostname rtr01"])
-        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        bl = {
+            "checks": {
+                "login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
         assert r.passed is False
 
     def test_pass_with_required_pattern(self):
         """Passes when banner contains the required pattern."""
-        snap = self._snap("rtr01", [
-            "banner login ^",
-            "Unauthorized access prohibited",
-            "^",
-        ])
-        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner",
-                                           "required_pattern": "Unauthorized access prohibited", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "banner login ^",
+                "Unauthorized access prohibited",
+                "^",
+            ],
+        )
+        bl = {
+            "checks": {
+                "login_banner": {
+                    "severity": "medium",
+                    "rule": "login_banner",
+                    "required_pattern": "Unauthorized access prohibited",
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
         assert r.passed is True
 
     def test_fail_pattern_mismatch(self):
         """Fails when banner does not contain the required pattern."""
-        snap = self._snap("rtr01", [
-            "banner login ^",
-            "Welcome to this device",
-            "^",
-        ])
-        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner",
-                                           "required_pattern": "Unauthorized access prohibited", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "banner login ^",
+                "Welcome to this device",
+                "^",
+            ],
+        )
+        bl = {
+            "checks": {
+                "login_banner": {
+                    "severity": "medium",
+                    "rule": "login_banner",
+                    "required_pattern": "Unauthorized access prohibited",
+                    "description": "",
+                }
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
         assert r.passed is False
         assert "Unauthorized access prohibited" in r.detail
 
     def test_no_pattern_check_when_not_configured(self):
         """Does not check pattern when required_pattern is not in config."""
-        snap = self._snap("rtr01", [
-            "banner login ^",
-            "Welcome!",
-            "^",
-        ])
-        bl = {"checks": {"login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}}}
+        snap = self._snap(
+            "rtr01",
+            [
+                "banner login ^",
+                "Welcome!",
+                "^",
+            ],
+        )
+        bl = {
+            "checks": {
+                "login_banner": {"severity": "medium", "rule": "login_banner", "description": ""}
+            }
+        }
         r = [x for x in run_checks(snap, bl) if x.check_name == "login_banner"][0]
         assert r.passed is True
