@@ -206,7 +206,14 @@ def _check_ntp_approved(
     for line in ntp_lines:
         parts = line.split()
         if len(parts) >= 3:
-            server = parts[2]
+            # Handle IOS-XE VRF syntax: "ntp server vrf <name> <ip>"
+            if parts[2].lower() == "vrf":
+                if len(parts) >= 5:
+                    server = parts[4]
+                else:
+                    continue
+            else:
+                server = parts[2]
             if server not in approved:
                 violations.append(server)
 
@@ -328,9 +335,7 @@ def _check_unused_iface_shutdown(
         if stripped.lower().startswith(iface_prefix):
             # Finalize previous interface block
             if current_iface is not None:
-                is_active = (
-                    current_iface.lower() in active_ifaces or has_allowed_vlan
-                )
+                is_active = current_iface.lower() in active_ifaces or has_allowed_vlan
                 if not is_active and not has_shutdown:
                     violations.append(current_iface)
             # Start new interface block
@@ -348,9 +353,7 @@ def _check_unused_iface_shutdown(
 
     # Finalize last interface block
     if current_iface is not None:
-        is_active = (
-            current_iface.lower() in active_ifaces or has_allowed_vlan
-        )
+        is_active = current_iface.lower() in active_ifaces or has_allowed_vlan
         if not is_active and not has_shutdown:
             violations.append(current_iface)
 
