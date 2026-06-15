@@ -448,6 +448,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
         RemediationRollbackError: If rollback fails
     """
     rollback_file = f"_audnet_rollback_{int(time.time())}"
+    last_exc: Exception | None = None
 
     # Strategy 1: configure replace with timing-based output
     try:
@@ -476,6 +477,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
 
         return str(output)
     except Exception as exc:  # pragma: no cover
+        last_exc = exc
         logger.warning("configure replace rollback failed: %s, trying next strategy", exc)
 
     # Strategy 2: Netmiko built-in rollback (if supported by driver)
@@ -490,16 +492,13 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
                 pass
             return str(output)
     except Exception as exc:  # pragma: no cover
-        logger.warning("Netmiko rollback failed: %s, trying line-by-line", exc)
+        last_exc = exc
+        logger.warning("Netmiko rollback failed: %s", exc)
 
-    # Strategy 3: Line-by-line rollback (last resort)
-    try:
-        # Apply only the diff-relevant lines, not the full config
-        lines = [line for line in previous_config.splitlines() if line.strip()]
-        output = conn.send_config_set(lines, exit_config_mode=True)
-        return str(output)  # pragma: no cover
-    except Exception as exc:  # pragma: no cover
-        raise RemediationRollbackError(f"Line-by-line rollback also failed: {exc}") from exc
+    raise RemediationRollbackError(
+        f"All rollback strategies failed for device. "
+        f"Last error: {last_exc}"
+    )
 
 
 def remediate_devices(
