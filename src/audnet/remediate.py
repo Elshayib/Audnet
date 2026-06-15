@@ -470,7 +470,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
 
         # Clean up rollback file
         try:  # pragma: no cover
-            conn.send_command(f"delete flash:{rollback_file}")
+            conn.send_command_timing(f"delete flash:{rollback_file}")
         except Exception:  # pragma: no cover  # nosec B110
             pass
 
@@ -485,7 +485,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
             logger.info("Netmiko rollback succeeded")
             # Clean up rollback file if it still exists
             try:  # pragma: no cover
-                conn.send_command(f"delete flash:{rollback_file}")
+                conn.send_command_timing(f"delete flash:{rollback_file}")
             except Exception:  # pragma: no cover  # nosec B110
                 pass
             return str(output)

@@ -464,12 +464,10 @@ class TestRollbackConfig:
     def test_configure_replace_success(self):
         """Should try configure replace first with timing-based output."""
         mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = [
-            "Delete successful",  # delete flash:...
-        ]
         mock_conn.send_command_timing.side_effect = [
             "Copy successful",  # copy running-config flash:...
             "Rollback successful",  # configure replace flash:... force
+            "Delete successful",  # delete flash:...
         ]
 
         from audnet.remediate import _rollback_config
@@ -480,13 +478,11 @@ class TestRollbackConfig:
     def test_configure_replace_with_confirmation(self):
         """Should handle [y/n] confirmation prompt from configure replace."""
         mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = [
-            "Delete successful",  # delete flash:...
-        ]
         mock_conn.send_command_timing.side_effect = [
             "Copy successful",  # copy running-config flash:...
             "This will apply the following configuration:\nAre you sure? [y/n]",  # configure replace
-            "Confirmed",  # y
+            "Confirmed",  # send y
+            "Delete successful",  # delete flash:...
         ]
 
         from audnet.remediate import _rollback_config
