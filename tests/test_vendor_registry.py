@@ -24,6 +24,14 @@ class TestVendorProfile:
         assert profile.template_prefix == "cisco_nxos"
         assert "show version" in profile.commands
 
+    def test_cisco_asa_profile(self):
+        profile = get_vendor_profile("cisco_asa")
+        assert profile.template_prefix == "cisco_asa"
+        assert "show interface" in profile.commands
+        assert "show version" in profile.commands
+        assert "show running-config" in profile.commands
+        assert profile.description == "Cisco ASA"
+
     def test_arista_eos_profile(self):
         profile = get_vendor_profile("arista_eos")
         assert profile.template_prefix == "arista_eos"
@@ -140,6 +148,10 @@ class TestListVendors:
     def test_includes_arista_eos(self):
         vendors = list_vendors()
         assert "arista_eos" in vendors
+
+    def test_includes_cisco_asa(self):
+        vendors = list_vendors()
+        assert "cisco_asa" in vendors
 
     def test_returns_sorted_list(self):
         vendors = list_vendors()

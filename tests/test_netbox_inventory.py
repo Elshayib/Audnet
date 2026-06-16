@@ -106,6 +106,15 @@ class TestNormalizeDevice:
         kw = _normalize_device(raw)
         assert kw["device_type"] == "paloalto_panos"
 
+    def test_asa_platform(self):
+        raw = {
+            "name": "asa-firewall",
+            "primary_ip": {"address": "10.0.0.4/24"},
+            "platform": {"slug": "asa"},
+        }
+        kw = _normalize_device(raw)
+        assert kw["device_type"] == "cisco_asa"
+
     def test_string_primary_ip(self):
         raw = {
             "name": "rtr01",
