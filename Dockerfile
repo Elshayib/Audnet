@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir uv
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ ./src/
-COPY .git/ ./.git/
 
 ARG AUDNET_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${AUDNET_VERSION}
@@ -49,7 +48,6 @@ RUN mkdir -p /app/inventory /app/baselines /app/reports /app/.net-audit && \
     chown -R audnet:audnet /app
 
 WORKDIR /app
-USER audnet
 
 # Default cron schedule: hourly
 ENV AUDIT_CRON="0 * * * *" \
