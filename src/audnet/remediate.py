@@ -545,6 +545,7 @@ def remediate_devices(
     auto_approve: bool = False,
     force: bool = False,
     max_workers: int = 1,
+    timeout: int = 30,
 ) -> list[RemediationResult]:
     """Apply remediation to multiple devices sequentially.
 
@@ -559,6 +560,7 @@ def remediate_devices(
         auto_approve: If True, skip interactive approval
         force: If True, apply even if no changes detected
         max_workers: Parallel workers (default 1 for safety)
+        timeout: SSH timeout in seconds (default: 30)
 
     Returns:
         List of RemediationResult, one per device
@@ -572,6 +574,7 @@ def remediate_devices(
             dry_run=dry_run,
             auto_approve=auto_approve,
             force=force,
+            timeout=timeout,
         )
         results.append(result)
 
