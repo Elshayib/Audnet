@@ -775,6 +775,11 @@ def remediate(
         "-d",
         help="Target specific device(s). Default: all from inventory",
     ),
+    timeout: int = typer.Option(
+        30,
+        "--timeout",
+        help="SSH timeout in seconds (default: 30)",
+    ),
 ) -> None:
     """Apply remediation config to devices with safety guarantees.
 
@@ -849,6 +854,7 @@ def remediate(
         dry_run=dry_run,
         auto_approve=auto_approve,
         force=force,
+        timeout=timeout,
     )
 
     # Display results
