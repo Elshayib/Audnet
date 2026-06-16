@@ -45,7 +45,7 @@ _SENSITIVE_LINE_RE = re.compile(
         (?:enable\s+)?
         password
         |(?:enable\s+)?secret
-        |key\s+(?:string|hash)
+        |key[\s-]+(?:string|hash)
         |snmp-server\s+community
         |ip\s+ospf\s+message-digest-key
         |isis\s+password

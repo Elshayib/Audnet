@@ -59,6 +59,20 @@ class TestSanitizeConfig:
         result = sanitize_config(config, "rtr01")
         assert "REDACTED" in result
 
+    def test_redacts_key_string_hyphenated(self):
+        """IOS uses 'key-string' (hyphenated) — must also be redacted."""
+        config = "key-string 7 094F471A1A0A\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "094F471A1A0A" not in result
+
+    def test_redacts_key_hash_hyphenated(self):
+        """'key-hash' (hyphenated) must also be redacted."""
+        config = "key-hash somehashvalue\n"
+        result = sanitize_config(config, "rtr01")
+        assert "REDACTED" in result
+        assert "somehashvalue" not in result
+
     def test_redacts_private_key_block(self):
         config = "-----BEGIN RSA PRIVATE KEY-----\n"
         result = sanitize_config(config, "rtr01")
