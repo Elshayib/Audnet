@@ -413,7 +413,7 @@ def history_diff(
     to_ref: str = typer.Option("HEAD", "--to", help="Newer Git ref (default: HEAD)"),
     history_dir: Path | None = typer.Option(
         None,
-        "--history-dir",
+        "--git-history-dir",
         help="Git config history directory (default: ~/.net-audit/git-config-history)",
     ),
 ) -> None:
@@ -453,7 +453,7 @@ def history_show(
     commit_ref: str = typer.Option("HEAD", "--ref", help="Git ref to show (default: HEAD)"),
     history_dir: Path | None = typer.Option(
         None,
-        "--history-dir",
+        "--git-history-dir",
         help="Git config history directory (default: ~/.net-audit/git-config-history)",
     ),
 ) -> None:
@@ -488,7 +488,7 @@ def history_log(
     limit: int = typer.Option(20, "--limit", help="Max number of commits to show"),
     history_dir: Path | None = typer.Option(
         None,
-        "--history-dir",
+        "--git-history-dir",
         help="Git config history directory (default: ~/.net-audit/git-config-history)",
     ),
 ) -> None:
@@ -534,7 +534,7 @@ def rollback(
     commit_ref: str = typer.Option("HEAD~1", "--ref", help="Git ref to roll back to"),
     history_dir: Path | None = typer.Option(
         None,
-        "--history-dir",
+        "--git-history-dir",
         help="Git config history directory (default: ~/.net-audit/git-config-history)",
     ),
     dry_run: bool = typer.Option(
