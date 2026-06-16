@@ -522,7 +522,7 @@ class TestCliGitHistory:
                 "history-diff",
                 "--device",
                 "rtr01",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
             ],
         )
@@ -542,7 +542,7 @@ class TestCliGitHistory:
                 "history-show",
                 "--device",
                 "rtr01",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
             ],
         )
@@ -563,7 +563,7 @@ class TestCliGitHistory:
                 "history-log",
                 "--device",
                 "rtr01",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
             ],
         )
@@ -587,7 +587,7 @@ class TestCliGitHistory:
                 "rtr01",
                 "--ref",
                 "HEAD~1",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
             ],
         )
@@ -611,7 +611,7 @@ class TestCliGitHistory:
                 "rtr01",
                 "--ref",
                 "HEAD~1",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
                 "--no-dry-run",
             ],
@@ -633,7 +633,7 @@ class TestCliGitHistory:
                 "history-show",
                 "--device",
                 "nonexistent",
-                "--history-dir",
+                "--git-history-dir",
                 str(repo_path),
             ],
         )
