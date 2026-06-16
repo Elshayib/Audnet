@@ -73,6 +73,15 @@ VENDOR_PROFILES: dict[str, VendorProfile] = {
         prefix="cisco_ios",
         description="Cisco IOS-XE (alias for cisco_ios)",
     ),
+    "cisco_asa": _profile(
+        commands=[
+            "show interface",
+            "show version",
+            "show running-config",
+        ],
+        prefix="cisco_asa",
+        description="Cisco ASA",
+    ),
     "cisco_nxos": _profile(
         commands=[
             "show ip interface brief",
@@ -154,6 +163,11 @@ VENDOR_TEMPLATE_SUFFIXES: dict[str, dict[Slot, str]] = {
     },
     "cisco_xe": {
         Slot.INTERFACES: "show_ip_interface_brief",
+        Slot.VERSION: "show_version",
+        Slot.RUNNING_CONFIG: "show_running_config",
+    },
+    "cisco_asa": {
+        Slot.INTERFACES: "show_interface",
         Slot.VERSION: "show_version",
         Slot.RUNNING_CONFIG: "show_running_config",
     },
@@ -276,6 +290,7 @@ _DETECTION_RULES: list[tuple[str, str]] = [
     ("Palo Alto", "paloalto_panos"),
     ("Cisco IOS-XE", "cisco_xe"),
     ("Cisco IOS-X", "cisco_xe"),
+    ("Cisco ASA", "cisco_asa"),
     ("Cisco IOS", "cisco_ios"),
     ("Cisco Internetwork Operating System", "cisco_ios"),
 ]

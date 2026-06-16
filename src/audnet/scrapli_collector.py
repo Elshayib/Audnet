@@ -58,6 +58,7 @@ try:
     _SCRAPLI_DRIVER_MAP = {
         "cisco_ios": AsyncIOSXEDriver,
         "cisco_xe": AsyncIOSXEDriver,
+        "cisco_asa": AsyncNetworkDriver,
         "cisco_nxos": AsyncNXOSDriver,
         "arista_eos": AsyncEOSDriver,
         "juniper_junos": AsyncJunosDriver,
@@ -92,6 +93,7 @@ def _is_retryable(exc: BaseException) -> bool:
 _TEXTFSM_PLATFORM_MAP: dict[str, str] = {
     "fortinet_fortios": "fortinet_fortios",
     "paloalto_panos": "paloalto_panos",
+    "cisco_asa": "cisco_asa",
     "aruba_os": "aruba_aoscx",
     "hp_procurve": "hp_procurve",
 }
