@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `smtp_password` exposed as plain CLI option in `listen` command — visible in process listings and shell history (#167)
+- `rollback` command name misleading — only rolls back git repo, not the actual device (#168)
+- SNMP trap receiver implemented but never started by `RealtimeListener` — dead code path (#169)
+- `scrapli` dependency duplicated in `pyproject.toml` — listed as both hard dep and optional extra (#170)
+- `collector_async.py`: `known_hosts=None` disables SSH host key verification — should use system default (#176)
+
+### Added
+
+- `prompt=True, hide_input=True` for `smtp_password` CLI option with `AUDNET_SMTP_PASSWORD` env var support (#167)
+- `git-rollback` command (renamed from `rollback`) with clarified docstring (#168)
+- SNMP trap receiver startup in `RealtimeListener.start()` when `snmp_trap_bind_port > 0` (#169)
+- `--timeout` option for `remediate` CLI command (#166)
+
+### Documentation
+
+- README vendor table updated: added Fortinet, Aruba, HP ProCurve, Cisco ASA (#172)
+- README project structure tree updated with missing source and test files (#173)
+- SECURITY.md version table updated: 0.2.x supported, 0.1.x EOL (#174)
+- CHANGELOG.md updated with all recent bug fixes and features (#175)
+
+### Build
+
+- Added `fallback_version = "0.0.0"` to `[tool.hatch.version]` for builds without Git tags (#171)
+
 ## [0.2.0] - 2026-06-13
 
 ### Added

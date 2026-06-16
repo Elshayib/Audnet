@@ -528,8 +528,8 @@ def history_log(
     console.print(table)
 
 
-@app.command()
-def rollback(
+@app.command(name="git-rollback")
+def git_rollback(
     device: str = typer.Option(..., "--device", help="Device name to roll back"),
     commit_ref: str = typer.Option("HEAD~1", "--ref", help="Git ref to roll back to"),
     history_dir: Path | None = typer.Option(
@@ -548,7 +548,11 @@ def rollback(
         help="Push to remote after committing rollback (requires remote to be configured)",
     ),
 ) -> None:
-    """Roll back a device's config to a previous Git commit.
+    """Roll back a device's stored config snapshot to a previous Git commit.
+
+    This command restores a previous config version in the git-backed config
+    history repository. It does NOT push config to the network device — it
+    only restores the stored snapshot in the local git repo.
 
     By default runs in dry-run mode showing what would be restored.
     Use --no-dry-run to actually write the config and commit.
@@ -613,7 +617,14 @@ def listen(
     smtp_host: str | None = typer.Option(None, "--smtp-host", help="SMTP server hostname"),
     smtp_port: int = typer.Option(587, "--smtp-port", help="SMTP server port"),
     smtp_username: str | None = typer.Option(None, "--smtp-username", help="SMTP username"),
-    smtp_password: str | None = typer.Option(None, "--smtp-password", help="SMTP password"),
+    smtp_password: str | None = typer.Option(
+        None,
+        "--smtp-password",
+        help="SMTP password (prefer AUDNET_SMTP_PASSWORD env var to avoid shell history exposure)",
+        envvar="AUDNET_SMTP_PASSWORD",
+        hide_input=True,
+        prompt=True,
+    ),
     smtp_use_tls: bool = typer.Option(
         True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"
     ),
@@ -778,7 +789,7 @@ def remediate(
     timeout: int = typer.Option(
         30,
         "--timeout",
-        help="SSH timeout in seconds (default: 30)",
+        help="SSH timeout in seconds for each device connection",
     ),
 ) -> None:
     """Apply remediation config to devices with safety guarantees.

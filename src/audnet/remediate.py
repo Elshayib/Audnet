@@ -560,7 +560,7 @@ def remediate_devices(
         auto_approve: If True, skip interactive approval
         force: If True, apply even if no changes detected
         max_workers: Parallel workers (default 1 for safety)
-        timeout: SSH timeout in seconds (default: 30)
+        timeout: SSH timeout in seconds for each device connection
 
     Returns:
         List of RemediationResult, one per device

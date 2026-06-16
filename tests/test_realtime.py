@@ -359,6 +359,7 @@ class TestCliListen:
             "devices:\n  - name: rtr01\n    host: 10.0.0.1\n    username: admin\n    password: test\n"
         )
 
+        env = {"AUDNET_SMTP_PASSWORD": "testpass"}
         result = runner.invoke(
             app,
             [
@@ -371,6 +372,7 @@ class TestCliListen:
                 "test@example.com",
                 # Missing --email-to
             ],
+            env=env,
         )
         assert result.exit_code == 1
         assert "email-to" in result.output

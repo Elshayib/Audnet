@@ -1654,12 +1654,12 @@ class TestCliRemediate:
             self._restore_import()
 
     def test_rollback_gitpython_missing(self):
-        """rollback shows friendly error when GitPython is not installed."""
+        """git-rollback shows friendly error when GitPython is not installed."""
         self._block_git_history_import()
         try:
             result = runner.invoke(
                 app,
-                ["rollback", "--device", "sandbox-c9k"],
+                ["git-rollback", "--device", "sandbox-c9k"],
             )
             assert result.exit_code == 1, f"Output: {result.output}"
             assert "GitPython is not installed" in result.output
@@ -1703,13 +1703,13 @@ class TestCliRemediate:
         assert "no repo" in result.output
 
     def test_rollback_git_history_error(self):
-        """rollback shows friendly error when GitHistoryError is raised."""
+        """git-rollback shows friendly error when GitHistoryError is raised."""
         from audnet.exceptions import GitHistoryError
 
         with patch("audnet.git_history.rollback_config", side_effect=GitHistoryError("bad ref")):
             result = runner.invoke(
                 app,
-                ["rollback", "--device", "sandbox-c9k"],
+                ["git-rollback", "--device", "sandbox-c9k"],
             )
         assert result.exit_code == 1, f"Output: {result.output}"
         assert "bad ref" in result.output

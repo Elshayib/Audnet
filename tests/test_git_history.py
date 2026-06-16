@@ -604,7 +604,7 @@ class TestCliGitHistory:
         result = runner.invoke(
             app,
             [
-                "rollback",
+                "git-rollback",
                 "--device",
                 "rtr01",
                 "--ref",
@@ -628,7 +628,7 @@ class TestCliGitHistory:
         result = runner.invoke(
             app,
             [
-                "rollback",
+                "git-rollback",
                 "--device",
                 "rtr01",
                 "--ref",
