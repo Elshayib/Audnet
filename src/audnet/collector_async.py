@@ -27,7 +27,7 @@ Migration path:
 
 import asyncio
 import logging
-from typing import cast
+from typing import Any, cast
 
 import asyncssh
 from asyncssh import (
@@ -43,8 +43,6 @@ from audnet.parser import parse_interfaces, parse_version, parse_config
 from audnet.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
-
-# Transient exceptions that are safe to retry on (asyncssh equivalents)
 _RETRYABLE_EXCEPTIONS = (
     DisconnectError,
     ChannelOpenError,
@@ -75,21 +73,24 @@ async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> dic
 
     Args:
         device: Device to collect from.
-        known_hosts: Path to known_hosts file. ``None`` uses the system default
-            (``~/.ssh/known_hosts``). Pass an empty string to disable verification
+        known_hosts: Path to known_hosts file. When not provided (default),
+            asyncssh uses the system default (``~/.ssh/known_hosts``).
+            Pass an empty string to explicitly disable verification
             (lab/testing only).
     """
     commands = get_commands(device.device_type)
     password = device.get_password()
     slot_map = (Slot.INTERFACES, Slot.VERSION, Slot.RUNNING_CONFIG)
-    async with asyncssh.connect(
-        device.host,
-        port=device.port,
-        username=device.username,
-        password=password,
-        known_hosts=known_hosts,
-        connect_timeout=device.timeout or 30,
-    ) as conn:
+    connect_kwargs: dict[str, Any] = {
+        "host": device.host,
+        "port": device.port,
+        "username": device.username,
+        "password": password,
+        "connect_timeout": device.timeout or 30,
+    }
+    if known_hosts is not None:
+        connect_kwargs["known_hosts"] = known_hosts
+    async with asyncssh.connect(**connect_kwargs) as conn:
         results: dict[Slot, str] = {}
         for slot, cmd in zip(slot_map, commands):
             result = await conn.run(cmd, timeout=device.timeout)
@@ -108,8 +109,9 @@ async def collect_device_async(
 
     Args:
         device: Device to collect from.
-        known_hosts: Path to known_hosts file. ``None`` uses the system default
-            (``~/.ssh/known_hosts``). Pass an empty string to disable verification
+        known_hosts: Path to known_hosts file. When not provided (default),
+            asyncssh uses the system default (``~/.ssh/known_hosts``).
+            Pass an empty string to explicitly disable verification
             (lab/testing only).
     """
     logger.info("Collecting data from %s (%s)", device.name, device.host)
@@ -167,9 +169,10 @@ async def collect_all_async(
             Defaults to 50 -- much higher than the sync default of 4
             because async connections have minimal per-connection overhead.
         timeout: Optional per-device timeout in seconds.
-        known_hosts: Path to known_hosts file. ``None`` uses the system default
-            (``~/.ssh/known_hosts``). Pass an empty string to disable
-            verification (lab/testing only).
+        known_hosts: Path to known_hosts file. When not provided (default),
+            asyncssh uses the system default (``~/.ssh/known_hosts``).
+            Pass an empty string to explicitly disable verification
+            (lab/testing only).
 
     Returns:
         List of DeviceSnapshot results, one per device.

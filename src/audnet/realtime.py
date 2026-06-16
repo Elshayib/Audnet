@@ -467,6 +467,19 @@ class RealtimeListener:
             poll_task = asyncio.create_task(self._run_polling())
             self._tasks.append(poll_task)
 
+        # Start SNMP trap receiver
+        if self._alert_config.snmp_trap_bind_port > 0:
+            try:
+                snmp_receiver = SnmpTrapReceiver(
+                    self._alert_config,
+                    self._on_snmp_trap,
+                    self._device_map,
+                )
+                snmp_task = asyncio.create_task(self._run_snmp(snmp_receiver))
+                self._tasks.append(snmp_task)
+            except ImportError as exc:
+                logger.warning("SNMP trap receiver not available: %s", exc)
+
         logger.info(
             "Real-time listener started. Syslog on %s:%d, polling every %ds",
             self._alert_config.syslog_bind_host,
@@ -550,6 +563,36 @@ class RealtimeListener:
                     last_configs[device_name] = config_text
                 except Exception as exc:
                     logger.warning("Poll failed for %s: %s", device_name, exc)
+
+    def _on_snmp_trap(self, device_name: str, source_ip: str, message: str) -> None:
+        """Callback for SNMP trap reception — creates ChangeEvent and sends alert."""
+        event = ChangeEvent(
+            device_name=device_name,
+            source_ip=source_ip,
+            event_type="snmp",
+            timestamp=time.time(),
+            raw_message=message,
+            change_summary=f"SNMP trap from {device_name}: {message}",
+            severity="high",
+        )
+        asyncio.ensure_future(self._alert_manager.send_alert(event))
+
+    async def _run_snmp(self, receiver: SnmpTrapReceiver) -> None:  # pragma: no cover
+        """Run the SNMP trap receiver.
+
+        The SnmpTrapReceiver sets up its own asyncio transport internally.
+        This method keeps the task alive until the listener is stopped.
+        """
+        logger.info(
+            "SNMP trap receiver listening on %s:%d",
+            self._alert_config.snmp_trap_bind_host,
+            self._alert_config.snmp_trap_bind_port,
+        )
+        try:
+            while self._running:
+                await asyncio.sleep(1)
+        finally:
+            receiver.close()
 
     async def _poll_device(self, host_ip: str) -> str:  # pragma: no cover
         """Poll a single device for its running config (lightweight)."""

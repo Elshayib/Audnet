@@ -566,11 +566,14 @@ audnet/
 │   ├── vendor_registry.py      # Vendor registry for multi-vendor dispatch
 │   ├── collector.py            # Parallel SSH collector (Netmiko + ThreadPool + retries)
 │   ├── collector_async.py      # Asyncio collector (asyncssh + semaphore concurrency)
+│   ├── scrapli_collector.py    # Scrapli async collector (optional, scrapli extra)
 │   ├── parser.py               # TextFSM parser (CLI → structured JSON, vendor-aware)
 │   ├── compliance.py           # Rule engine (11 security checks, vendor-pattern overrides)
 │   ├── reporter.py             # Jinja2 report generator (Markdown + HTML)
 │   ├── history.py              # SQLite audit history store with drift detection
 │   ├── git_history.py          # Git-backed device config history with diff and rollback
+│   ├── remediate.py            # Safe config push with dry-run, diff, rollback
+│   ├── realtime.py             # Real-time listener: syslog/SNMP traps, alerting, polling
 │   ├── inventory_sources/
 │   │   ├── __init__.py
 │   │   └── netbox.py           # NetBox dynamic inventory fetcher
@@ -616,7 +619,13 @@ audnet/
     ├── test_git_history.py     # Git-backed config history (sanitize, commit, diff, rollback)
     ├── test_drift.py           # Drift/regression detection
     ├── test_cli.py             # CLI tests including history subcommand
-    └── test_netbox_inventory.py # NetBox inventory fetcher (mocked API)
+    ├── test_netbox_inventory.py # NetBox inventory fetcher (mocked API)
+    ├── test_remediate.py       # Remediation: dry-run, diff, idempotent, rollback
+    ├── test_realtime.py        # Real-time listener: syslog, SNMP, alerting
+    ├── test_scrapli_collector.py # Scrapli collector: driver mapping, collection
+    ├── test_vendors_expanded.py # Fortinet, Aruba, HP vendor command tests
+    ├── test_vendors_juniper_panos.py # Juniper/Palo Alto template tests
+    └── test_history_cli.py     # History CLI command tests
 ```
 
 ## Multi-Vendor Support
@@ -628,10 +637,15 @@ audnet uses a vendor registry/dispatch pattern (similar to NAPALM/Nornir driver 
 | Vendor | device_type | Template prefix |
 |--------|-------------|-----------------|
 | Cisco IOS/IOS-XE | `cisco_ios` | `cisco_ios` |
+| Cisco IOS-XE (alias) | `cisco_xe` | `cisco_ios` |
 | Cisco NX-OS | `cisco_nxos` | `cisco_nxos` |
+| Cisco ASA | `cisco_asa` | `cisco_asa` |
 | Arista EOS | `arista_eos` | `arista_eos` |
 | Juniper JunOS | `juniper_junos` | `juniper_junos` |
 | Palo Alto PAN-OS | `paloalto_panos` | `paloalto_panos` |
+| Fortinet FortiOS | `fortinet_fortios` | `fortinet_fortios` |
+| Aruba OS | `aruba_os` | `aruba_os` |
+| HP ProCurve | `hp_procurve` | `hp_procurve` |
 
 Unknown device types fall back to `cisco_ios` commands and templates.
 
