@@ -74,7 +74,6 @@ _SENSITIVE_MIDLINE_RE = re.compile(
         |ntp\s+authentication-key
         |crypto\s+(?:isakmp|ike)\s+key
         |neighbor\s+\S+\s+(?:bgp\s+)?password
-        |service\s+password-encryption
     )
     """,
     re.IGNORECASE | re.VERBOSE,
