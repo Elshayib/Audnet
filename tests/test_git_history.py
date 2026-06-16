@@ -153,11 +153,19 @@ class TestSanitizeConfig:
         assert "REDACTED" in result
         assert "PeerPass" not in result
 
-    def test_redacts_service_password_encryption(self):
-        """Mid-line: 'service password-encryption' is redacted."""
+    def test_preserves_service_password_encryption(self):
+        """'service password-encryption' is a config command, not a secret."""
         config = "service password-encryption\n"
         result = sanitize_config(config, "rtr01")
-        assert "REDACTED" in result
+        assert "service password-encryption" in result
+        assert "REDACTED" not in result
+
+    def test_preserves_no_service_password_encryption(self):
+        """'no service password-encryption' is a config command, not a secret."""
+        config = "no service password-encryption\n"
+        result = sanitize_config(config, "rtr01")
+        assert "no service password-encryption" in result
+        assert "REDACTED" not in result
 
     def test_midline_case_insensitive(self):
         """Mid-line patterns are case-insensitive."""
