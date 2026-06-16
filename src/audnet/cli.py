@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 import typer
@@ -13,7 +13,7 @@ from rich.table import Table
 
 from audnet import __version__
 from audnet.collector import collect_all
-from audnet.compliance import run_checks
+from audnet.compliance import list_checks, run_checks
 from audnet.config import load_inventory, load_baseline
 from audnet.models import AuditReport
 from audnet.reporter import render_markdown, render_html
@@ -74,7 +74,7 @@ def audit(
     inventory: str = typer.Option("inventories/devices.yaml", help="Device inventory YAML"),
     baseline: str = typer.Option("baselines/security_baseline.yaml", help="Security baseline YAML"),
     output: str = typer.Option("audit_report", help="Output file prefix"),
-    format: str = typer.Option("both", help="Output format: md, html, or both"),
+    format: Literal["md", "html", "both"] = typer.Option("both", help="Output format: md, html, or both"),
     workers: int = typer.Option(4, help="Max parallel SSH connections"),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable debug logging"),
     device: str | None = typer.Option(None, "--device", help="Filter to single device by name"),
@@ -187,6 +187,19 @@ def audit(
                     f"[yellow]Warning: unknown check(s) {', '.join(sorted(unknown))} — "
                     f"available: {', '.join(sorted(check_names))}[/yellow]"
                 )
+        # Validate baseline rules reference known compliance checks
+        available_rules = set(list_checks())
+        baseline_checks = baseline_data.get("checks", {})
+        unknown_rules: list[str] = []
+        for check_name, check_config in baseline_checks.items():
+            rule = check_config.get("rule")
+            if rule and rule not in available_rules:
+                unknown_rules.append(f"{check_name} (rule: {rule})")
+        if unknown_rules:
+            console.print(
+                f"[yellow]Warning: unknown rule(s) in baseline: "
+                f"{', '.join(sorted(unknown_rules))}[/yellow]"
+            )
         console.print("[green]Dry run complete — config and baseline are valid[/green]")
         return
 

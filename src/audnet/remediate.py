@@ -442,8 +442,7 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
     Strategy:
     1. Try 'configure replace' with timing-based output (avoids prompt pattern
        mismatch on IOS-XE configure replace interactive output)
-    2. Fall back to applying the previous config lines
-    3. Try Netmiko's built-in rollback if available
+    2. Fall back to applying the previous config lines line-by-line
 
     Args:
         conn: Active Netmiko connection
@@ -516,20 +515,14 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
         last_exc = exc
         logger.warning("configure replace rollback failed: %s, trying next strategy", exc)
 
-    # Strategy 2: Netmiko built-in rollback (if supported by driver)
+    # Strategy 2: Line-by-line rollback (last resort)
     try:
-        if hasattr(conn, "rollback") and callable(conn.rollback):
-            output = conn.rollback()
-            logger.info("Netmiko rollback succeeded")
-            # Clean up rollback file if it still exists
-            try:  # pragma: no cover
-                conn.send_command_timing(f"delete flash:{rollback_file}")
-            except Exception:  # pragma: no cover  # nosec B110
-                pass
-            return str(output)
+        lines = [line for line in previous_config.splitlines() if line.strip()]
+        output = conn.send_config_set(lines, exit_config_mode=True)
+        return str(output)  # pragma: no cover
     except Exception as exc:  # pragma: no cover
         last_exc = exc
-        logger.warning("Netmiko rollback failed: %s", exc)
+        logger.warning("line-by-line rollback failed: %s", exc)
 
     raise RemediationRollbackError(
         f"All rollback strategies failed for device. "

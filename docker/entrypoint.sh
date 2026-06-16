@@ -21,13 +21,13 @@ run_audit() {
     echo "[audnet] Baseline:  ${BASELINE}"
     echo "[audnet] Reports:   ${REPORTS}"
 
-    audnet audit \
-        --inventory "${INVENTORY}" \
-        --baseline "${BASELINE}" \
-        --output "${REPORTS}/audit_report" \
-        --history-dir "${HISTORY_DIR}" \
-        --format both \
-        2>&1 || true
+    # Run audit as non-root user
+    su - audnet -s /bin/bash -c "audnet audit \
+        --inventory \"${INVENTORY}\" \
+        --baseline \"${BASELINE}\" \
+        --output \"${REPORTS}/audit_report\" \
+        --history-dir \"${HISTORY_DIR}\" \
+        --format both" 2>&1 || true
 
     echo "[audnet] Audit complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -41,8 +41,8 @@ case "${1:-cron}" in
         echo "[audnet] Inventory: ${INVENTORY}"
         echo "[audnet] Baseline:  ${BASELINE}"
 
-        # Write the cron schedule for the audnet user
-        CRON_CMD="${CRON_SCHEDULE} cd /app && AUDNET_INVENTORY=${INVENTORY} AUDNET_BASELINE=${BASELINE} AUDNET_REPORTS=${REPORTS} AUDNET_HISTORY_DIR=${HISTORY_DIR} /usr/local/bin/entrypoint.sh once >> /var/log/audnet.log 2>&1"
+        # Write the cron schedule (runs as root, drops to audnet for audit)
+        CRON_CMD="${CRON_SCHEDULE} cd /app && AUDNET_INVENTORY=${INVENTORY} AUDNET_BASELINE=${BASELINE} AUDNET_REPORTS=${REPORTS} AUDNET_HISTORY_DIR=${HISTORY_DIR} su - audnet -s /bin/bash -c '/usr/local/bin/entrypoint.sh once' >> /var/log/audnet.log 2>&1"
         echo "${CRON_CMD}" | crontab -
         crontab -l
 

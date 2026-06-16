@@ -505,19 +505,19 @@ class TestRollbackConfig:
         result = _rollback_config(mock_conn, "hostname rtr01\n")
         assert "Confirmed" in result
 
-    def test_netmiko_rollback_fallback(self):
-        """Should try Netmiko built-in rollback if configure replace fails."""
+    def test_line_by_line_rollback_after_configure_replace_failure(self):
+        """Should fall through to line-by-line rollback when configure replace fails."""
         mock_conn = MagicMock()
         # configure replace fails
         mock_conn.send_command.side_effect = Exception("copy failed")
         mock_conn.send_command_timing.side_effect = Exception("timing failed")
-        # Netmiko rollback succeeds
-        mock_conn.rollback.return_value = "Netmiko rollback ok"
+        # No Netmiko rollback strategy anymore — goes straight to line-by-line
+        mock_conn.send_config_set.return_value = "line-by-line ok"
 
         from audnet.remediate import _rollback_config
 
         result = _rollback_config(mock_conn, "hostname rtr01\n")
-        assert "Netmiko rollback ok" in result
+        assert "line-by-line ok" in result
 
     def test_fallback_to_line_by_line(self):
         """If all strategies fail, should raise RemediationRollbackError."""
@@ -525,7 +525,6 @@ class TestRollbackConfig:
         # All strategies fail
         mock_conn.send_command.side_effect = Exception("copy failed")
         mock_conn.send_command_timing.side_effect = Exception("timing failed")
-        mock_conn.rollback.side_effect = Exception("rollback not supported")
         mock_conn.send_config_set.side_effect = Exception("line-by-line failed")
 
         from audnet.remediate import _rollback_config
