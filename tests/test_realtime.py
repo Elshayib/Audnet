@@ -409,67 +409,89 @@ class TestWebhookSender:
 
     @pytest.mark.asyncio
     async def test_send_webhook_success(self, webhook_config, sample_event):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
         manager = AlertManager(webhook_config)
         mock_resp = MagicMock()
-        mock_resp.status = 200
+        mock_resp.status_code = 200
 
-        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
-            await manager._send_webhook(sample_event)
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        manager._httpx_client = mock_client
 
-        mock_urlopen.assert_called_once()
-        # Verify the request was POST
-        call_args = mock_urlopen.call_args
-        req = call_args[0][0]
-        assert req.method == "POST"
-        assert req.full_url == "https://hooks.example.com/audit"
+        await manager._send_webhook(sample_event)
+
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args
+        assert call_kwargs[0][0] == "https://hooks.example.com/audit"
+        assert call_kwargs[1]["headers"]["Content-Type"] == "application/json"
 
     @pytest.mark.asyncio
     async def test_send_webhook_includes_hmac_signature(self, webhook_config, sample_event):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
         manager = AlertManager(webhook_config)
         mock_resp = MagicMock()
-        mock_resp.status = 200
+        mock_resp.status_code = 200
 
-        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
-            await manager._send_webhook(sample_event)
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        manager._httpx_client = mock_client
 
-            call_args = mock_urlopen.call_args
-            req = call_args[0][0]
-            assert any("x-signature" in h.lower() for h in req.headers)
+        await manager._send_webhook(sample_event)
+
+        call_kwargs = mock_client.post.call_args
+        headers = call_kwargs[1]["headers"]
+        assert "X-Signature" in headers
+        assert headers["X-Signature"].startswith("sha256=")
 
     @pytest.mark.asyncio
     async def test_send_webhook_retries_on_failure(self, webhook_config, sample_event):
-        import urllib.error
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
         manager = AlertManager(webhook_config)
         mock_resp = MagicMock()
-        mock_resp.status = 200
+        mock_resp.status_code = 200
 
-        with patch(
-            "urllib.request.urlopen",
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
             side_effect=[
-                urllib.error.URLError("timeout"),
+                Exception("connection refused"),
                 mock_resp,
             ],
-        ) as mock_urlopen:
-            await manager._send_webhook(sample_event)
+        )
+        manager._httpx_client = mock_client
 
-        assert mock_urlopen.call_count == 2
+        await manager._send_webhook(sample_event)
+
+        assert mock_client.post.call_count == 2
 
     @pytest.mark.asyncio
     async def test_send_webhook_exhausts_retries(self, webhook_config, sample_event):
-        import urllib.error
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock
 
         manager = AlertManager(webhook_config)
 
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
-            # Should not raise — retries are caught internally
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=Exception("connection refused"))
+        manager._httpx_client = mock_client
+
+        # Should not raise — retries are caught internally
+        await manager._send_webhook(sample_event)
+
+        assert mock_client.post.call_count == webhook_config.webhook_retries
+
+    @pytest.mark.asyncio
+    async def test_send_webhook_skipped_when_httpx_unavailable(
+        self, webhook_config, sample_event
+    ):
+        from unittest.mock import patch
+
+        with patch("audnet.realtime._HTTPX_AVAILABLE", False):
+            manager = AlertManager(webhook_config)
+            # Should return immediately without error
             await manager._send_webhook(sample_event)
+            assert manager._httpx_client is None
 
 
 # ---------------------------------------------------------------------------
