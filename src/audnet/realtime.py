@@ -133,6 +133,11 @@ class AlertManager:
         if now - last < self._config.rate_limit_seconds:
             return True
         self._last_alert_time[key] = now
+        # In-place cleanup of expired entries
+        expired = [k for k, v in self._last_alert_time.items()
+                   if now - v >= self._config.rate_limit_seconds * 2]
+        for k in expired:
+            del self._last_alert_time[k]
         return False
 
     def _is_duplicate(self, event: ChangeEvent) -> bool:
@@ -143,10 +148,11 @@ class AlertManager:
         if now - last < self._config.dedup_window:
             return True
         self._dedup_cache[key] = now
-        # Clean old entries
-        self._dedup_cache = {
-            k: v for k, v in self._dedup_cache.items() if now - v < self._config.dedup_window * 2
-        }
+        # In-place cleanup of expired entries instead of rebuilding the dict
+        expired = [k for k, v in self._dedup_cache.items()
+                   if now - v >= self._config.dedup_window * 2]
+        for k in expired:
+            del self._dedup_cache[k]
         return False
 
     async def send_alert(self, event: ChangeEvent) -> None:
