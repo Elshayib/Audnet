@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SNMP trap receiver implemented but never started by `RealtimeListener` — dead code path (#169)
 - `scrapli` dependency duplicated in `pyproject.toml` — listed as both hard dep and optional extra (#170)
 - `collector_async.py`: `known_hosts=None` disables SSH host key verification — should use system default (#176)
+- `sanitize_config` false positive on `service password-encryption` — redacted as sensitive when it is a CLI command, not a secret (#182)
+- `key-string` / `key-hash` (hyphenated) not matched by sanitize regex (#183)
+- `cisco_asa` missing from `VENDOR_PROFILES` — present in NetBox mapping but not registrable (#184)
+- `--check` comma-splitting broken in CLI — single `--check a,b` was not split (#185)
+- `scrapli._get_scrapli_driver` raises `KeyError` for unknown vendors — no fallback path (#186)
+- Webhook alert delivery used blocking `urllib` in executor thread — consumes thread pool, creates new TCP connection per alert, blocks on retries (#193)
 
 ### Added
 
@@ -21,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `git-rollback` command (renamed from `rollback`) with clarified docstring (#168)
 - SNMP trap receiver startup in `RealtimeListener.start()` when `snmp_trap_bind_port > 0` (#169)
 - `--timeout` option for `remediate` CLI command (#166)
+
+### Performance
+
+- Reduced memory pressure: polling compares SHA256 hashes instead of storing full running-config text; `sanitize_config_to_file` writes incrementally instead of building full sanitized string in memory (#190)
+- Optimized compliance checks: reduced allocations and repeated parsing in hot paths per-device (#191)
+- `AlertManager._is_duplicate`: replaced full dict rebuild on every call with in-place cleanup of expired keys — eliminates CPU spikes under high alert throughput (#192)
+- `AlertManager._is_rate_limited`: added in-place cleanup for `_last_alert_time` which previously grew unbounded (#192)
+- Replaced blocking `urllib` webhook delivery with `httpx.AsyncClient` with connection pooling (20 max, 10 keepalive, 30s expiry) — non-blocking, reuses TCP connections (#193)
+
+### Dependencies
+
+- Added `httpx>=0.28.0` as a core dependency for async HTTP webhook delivery (#193)
 
 ### Documentation
 
