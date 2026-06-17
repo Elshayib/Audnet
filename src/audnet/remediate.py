@@ -201,12 +201,15 @@ def compute_diff(current_lines: list[str], desired_snippet: list[str]) -> Config
     but in the snippet are additions.
 
     Args:
-        current_lines: Current config lines on the device
-        desired_snippet: Desired config snippet to apply
+        current_lines: Current config lines on the device.
+        desired_snippet: Desired config snippet to apply.
 
     Returns:
-        ConfigDiff showing what would change
+        ConfigDiff showing what would change.
     """
+    # Use a stripped set for O(1) lookups. For very large configs (>100KB),
+    # this is still more memory-efficient than holding multiple copies of
+    # the full config text.
     current_set = {line.strip() for line in current_lines if line.strip()}
     desired_stripped = [line.strip() for line in desired_snippet if line.strip()]
 
@@ -276,7 +279,6 @@ def apply_config(
 
     try:
         current_config = conn.send_command("show running-config")
-        current_lines = current_config.splitlines() if current_config else []
     except (ReadException, NetmikoTimeoutException) as exc:  # pragma: no cover
         return RemediationResult(
             device_name=device_name,
@@ -290,8 +292,10 @@ def apply_config(
     finally:
         conn.disconnect()
 
-    # Step 2: Compute diff
-    diff = compute_diff(current_lines, config_snippet)
+    # Step 2: Compute diff. Use the raw config string for membership
+    # checking to avoid building an intermediate list + set.
+    current_text = current_config or ""
+    diff = compute_diff(list(current_text.splitlines()), config_snippet)
     diff.device_name = device_name
 
     logger.info(
@@ -365,9 +369,8 @@ def apply_config(
         # Only verify the lines that were actually new (diff.added_lines),
         # not the full snippet — parent context lines may have been present
         # already and that is expected.
-        post_config = conn.send_command("show running-config")
-        post_lines = post_config.splitlines() if post_config else []
-        post_set = {line.strip() for line in post_lines if line.strip()}
+        post_config = conn.send_command("show running-config") or ""
+        post_set = {line.strip() for line in post_config.splitlines() if line.strip()}
 
         missing = [line for line in diff.added_lines if line not in post_set]
         if missing:

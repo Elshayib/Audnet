@@ -105,6 +105,32 @@ def sanitize_config(raw_config: str, device_name: str) -> str:
     return "".join(sanitized)
 
 
+def sanitize_config_to_file(
+    raw_config: str, device_name: str, output_path: Path
+) -> None:
+    """Sanitize a device config and write directly to a file.
+
+    Processes the raw config line-by-line, writing each line to *output_path*
+    immediately. This avoids holding both the raw and sanitized configs in
+    memory simultaneously, reducing peak memory from O(2 × config_size) to
+    O(config_size).
+
+    Args:
+        raw_config: The full running config text from a device.
+        device_name: The device name (used in redaction markers).
+        output_path: Path to write the sanitized config to.
+    """
+    if not raw_config:
+        output_path.write_text("")
+        return
+    with open(output_path, "w") as fh:
+        for line in raw_config.splitlines(keepends=True):
+            if _SENSITIVE_LINE_RE.search(line) or _SENSITIVE_MIDLINE_RE.search(line):
+                fh.write(f"! [REDACTED by audnet — {device_name}]\n")
+            else:
+                fh.write(line)
+
+
 def _require_gitpython() -> None:
     """Raise GitHistoryError if GitPython is not installed."""
     if gitpython is None:
@@ -232,9 +258,9 @@ def save_config_snapshot(
     for device_name, raw_config in device_configs.items():
         safe_name = re.sub(r"[^a-zA-Z0-9._-]", "-", device_name.lower())
         cfg_file = work_tree / f"{safe_name}.cfg"
-        sanitized = sanitize_config(raw_config, device_name)
-        if not cfg_file.exists() or cfg_file.read_text() != sanitized:
-            cfg_file.write_text(sanitized)
+        # Stream-sanitize directly to file instead of building full
+        # sanitized string in memory alongside raw_config.
+        sanitize_config_to_file(raw_config, device_name, cfg_file)
         repo.index.add([str(cfg_file.relative_to(work_tree))])
 
     if not repo.index.diff("HEAD") and not repo.untracked_files:

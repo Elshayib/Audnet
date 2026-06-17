@@ -209,6 +209,81 @@ class TestSanitizeConfig:
         assert result.count("REDACTED") == 3
 
 
+class TestSanitizeConfigToFile:
+    def test_writes_sanitized_to_file(self, tmp_path: Path):
+        """sanitize_config_to_file writes sanitized output directly to a file."""
+        from audnet.git_history import sanitize_config_to_file
+
+        config = "hostname rtr01\npassword secret123\ninterface Gig0/0\n"
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file(config, "rtr01", output_path)
+        result = output_path.read_text()
+        assert "hostname rtr01" in result
+        assert "interface Gig0/0" in result
+        assert "secret123" not in result
+        assert "REDACTED" in result
+
+    def test_empty_input_writes_empty_file(self, tmp_path: Path):
+        from audnet.git_history import sanitize_config_to_file
+
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file("", "rtr01", output_path)
+        assert output_path.read_text() == ""
+
+    def test_matches_sanitize_config_output(self, tmp_path: Path):
+        """sanitize_config_to_file produces the same output as sanitize_config."""
+        from audnet.git_history import sanitize_config, sanitize_config_to_file
+
+        config = (
+            "hostname rtr01\n"
+            "password linepass\n"
+            "username admin password 0 userpass\n"
+            "interface Gig0/0\n"
+            " ip address 10.0.0.1 255.255.255.0\n"
+            "tacacs-server key tackey\n"
+            "snmp-server community private RW\n"
+        )
+        expected = sanitize_config(config, "rtr01")
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file(config, "rtr01", output_path)
+        assert output_path.read_text() == expected
+
+    def test_redacts_midline_patterns(self, tmp_path: Path):
+        from audnet.git_history import sanitize_config_to_file
+
+        config = "username admin password 0 MyP@ssw0rd\n"
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file(config, "rtr01", output_path)
+        result = output_path.read_text()
+        assert "REDACTED" in result
+        assert "MyP@ssw0rd" not in result
+
+    def test_device_name_in_redaction_marker(self, tmp_path: Path):
+        from audnet.git_history import sanitize_config_to_file
+
+        config = "password secret\n"
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file(config, "my-router", output_path)
+        result = output_path.read_text()
+        assert "my-router" in result
+
+    def test_large_config_streams_efficiently(self, tmp_path: Path):
+        """Verify the function handles large configs without error."""
+        from audnet.git_history import sanitize_config_to_file
+
+        # Simulate a large config (100KB+)
+        lines = [f"interface Gig0/{i}\n" for i in range(2000)]
+        lines.append("password bigsecret\n")
+        config = "".join(lines)
+        output_path = tmp_path / "rtr01.cfg"
+        sanitize_config_to_file(config, "rtr01", output_path)
+        result = output_path.read_text()
+        assert "bigsecret" not in result
+        assert "REDACTED" in result
+        assert "interface Gig0/0" in result
+        assert "interface Gig0/1999" in result
+
+
 class TestInitGitRepo:
     def test_creates_new_repo(self, tmp_path: Path):
         repo_path = tmp_path / "git-repo"

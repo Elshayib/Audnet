@@ -595,9 +595,12 @@ class RealtimeListener:
             receiver.close()
 
     async def _poll_device(self, host_ip: str) -> str:  # pragma: no cover
-        """Poll a single device for its running config (lightweight)."""
-        # This is a lightweight poll — just grab the running config hash
-        # to detect changes, not full compliance audit
+        """Poll a single device for its running config hash (lightweight).
+
+        Returns the SHA256 hex digest of the running config, not the full
+        config text. This reduces memory from O(config_size) to O(32 bytes)
+        per device in the polling loop's last_configs cache.
+        """
         try:
             async with asyncssh.connect(
                 host_ip,
@@ -607,8 +610,8 @@ class RealtimeListener:
                 result = await conn.run("show running-config", timeout=30)
                 stdout = result.stdout
                 if isinstance(stdout, bytes):
-                    return stdout.decode("utf-8", errors="replace")
-                return stdout or ""
+                    return hashlib.sha256(stdout).hexdigest()
+                return hashlib.sha256((stdout or "").encode()).hexdigest()
         except Exception:
             return ""
 
