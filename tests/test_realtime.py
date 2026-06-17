@@ -742,3 +742,149 @@ class TestEmailErrorHandling:
         ):
             with pytest.raises(Exception, match="SMTP error"):
                 await manager._send_email(event)
+
+
+# ---------------------------------------------------------------------------
+# _poll_device — SHA256 hash comparison
+# ---------------------------------------------------------------------------
+
+
+class TestPollDeviceHash:
+    """Tests for _poll_device returning SHA256 hashes instead of full config."""
+
+    def test_poll_device_returns_hash_not_full_config(self):
+        """_poll_device should return a 64-char SHA256 hex digest."""
+        import hashlib
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"hostname rtr01\ninterface Gig0/0\n"
+
+        mock_conn = AsyncMock()
+        mock_conn.run = AsyncMock(return_value=mock_result)
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("audnet.realtime.asyncssh.connect", return_value=mock_conn):
+            import asyncio
+            from audnet.realtime import RealtimeListener
+
+            config = {
+                "syslog_bind_host": "0.0.0.0",
+                "syslog_bind_port": 514,
+                "snmp_trap_bind_host": "0.0.0.0",
+                "snmp_trap_bind_port": 162,
+                "poll_interval": 60,
+                "rate_limit_seconds": 60,
+                "dedup_window": 300,
+                "webhook_url": None,
+                "webhook_secret": None,
+                "smtp_host": None,
+                "smtp_port": 587,
+                "smtp_username": None,
+                "smtp_password": None,
+                "email_from": None,
+                "email_to": [],
+                "smtp_use_tls": True,
+            }
+            alert_config = AlertConfig(**config)
+            listener = RealtimeListener.__new__(RealtimeListener)
+            listener._alert_config = alert_config
+
+            result = asyncio.run(listener._poll_device("10.0.0.1"))
+
+        expected_hash = hashlib.sha256(mock_result.stdout).hexdigest()
+        assert result == expected_hash
+        assert len(result) == 64  # SHA256 hex digest length
+
+    def test_poll_device_hash_changes_with_config(self):
+        """Different configs produce different hashes."""
+        import hashlib
+
+        config_a = b"hostname rtr01\ninterface Gig0/0\n"
+        config_b = b"hostname rtr01\ninterface Gig0/0\n ip address 10.0.0.1 255.255.255.0\n"
+
+        hash_a = hashlib.sha256(config_a).hexdigest()
+        hash_b = hashlib.sha256(config_b).hexdigest()
+        assert hash_a != hash_b
+
+    def test_poll_device_returns_empty_on_error(self):
+        """_poll_device returns empty string on connection failure."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_conn = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("audnet.realtime.asyncssh.connect", return_value=mock_conn):
+            import asyncio
+            from audnet.realtime import RealtimeListener
+
+            config = {
+                "syslog_bind_host": "0.0.0.0",
+                "syslog_bind_port": 514,
+                "snmp_trap_bind_host": "0.0.0.0",
+                "snmp_trap_bind_port": 162,
+                "poll_interval": 60,
+                "rate_limit_seconds": 60,
+                "dedup_window": 300,
+                "webhook_url": None,
+                "webhook_secret": None,
+                "smtp_host": None,
+                "smtp_port": 587,
+                "smtp_username": None,
+                "smtp_password": None,
+                "email_from": None,
+                "email_to": [],
+                "smtp_use_tls": True,
+            }
+            alert_config = AlertConfig(**config)
+            listener = RealtimeListener.__new__(RealtimeListener)
+            listener._alert_config = alert_config
+
+            result = asyncio.run(listener._poll_device("10.0.0.1"))
+        assert result == ""
+
+    def test_poll_device_handles_string_stdout(self):
+        """_poll_device handles str stdout (not just bytes)."""
+        import hashlib
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.stdout = "hostname rtr01\n"  # str, not bytes
+
+        mock_conn = AsyncMock()
+        mock_conn.run = AsyncMock(return_value=mock_result)
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("audnet.realtime.asyncssh.connect", return_value=mock_conn):
+            import asyncio
+            from audnet.realtime import RealtimeListener
+
+            config = {
+                "syslog_bind_host": "0.0.0.0",
+                "syslog_bind_port": 514,
+                "snmp_trap_bind_host": "0.0.0.0",
+                "snmp_trap_bind_port": 162,
+                "poll_interval": 60,
+                "rate_limit_seconds": 60,
+                "dedup_window": 300,
+                "webhook_url": None,
+                "webhook_secret": None,
+                "smtp_host": None,
+                "smtp_port": 587,
+                "smtp_username": None,
+                "smtp_password": None,
+                "email_from": None,
+                "email_to": [],
+                "smtp_use_tls": True,
+            }
+            alert_config = AlertConfig(**config)
+            listener = RealtimeListener.__new__(RealtimeListener)
+            listener._alert_config = alert_config
+
+            result = asyncio.run(listener._poll_device("10.0.0.1"))
+
+        expected_hash = hashlib.sha256(b"hostname rtr01\n").hexdigest()
+        assert result == expected_hash
