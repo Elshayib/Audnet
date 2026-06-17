@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import re
@@ -18,6 +19,13 @@ from email.mime.text import MIMEText
 from typing import Any, Callable
 
 import asyncssh
+
+try:
+    import httpx  # noqa: F401
+
+    _HTTPX_AVAILABLE = True
+except ImportError:
+    _HTTPX_AVAILABLE = False
 
 try:
     import aiosmtplib  # noqa: F401
@@ -125,6 +133,26 @@ class AlertManager:
         self._last_alert_time: dict[str, float] = {}
         self._dedup_cache: dict[str, float] = {}
         self._alert_count = 0
+        self._httpx_client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily create and reuse an httpx AsyncClient with connection pooling."""
+        if self._httpx_client is None:
+            self._httpx_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._config.webhook_timeout),
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30,
+                ),
+            )
+        return self._httpx_client
+
+    async def close(self) -> None:
+        """Close the httpx client if open."""
+        if self._httpx_client is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = None
 
     def _is_rate_limited(self, key: str) -> bool:
         """Check if an alert for this key is rate limited."""
@@ -187,9 +215,10 @@ class AlertManager:
                     logger.warning("Alert delivery failed: %s", result)
 
     async def _send_webhook(self, event: ChangeEvent) -> None:
-        """Send webhook POST with retry."""
-        import urllib.request
-        import urllib.error
+        """Send webhook POST with retry using async HTTP client and connection pooling."""
+        if not _HTTPX_AVAILABLE:
+            logger.error("httpx is not installed — cannot send webhook alerts")
+            return
 
         payload = json.dumps(
             {
@@ -205,8 +234,6 @@ class AlertManager:
 
         headers = {"Content-Type": "application/json"}
         if self._config.webhook_secret:
-            import hmac
-
             signature = hmac.new(
                 self._config.webhook_secret.encode(),
                 payload,
@@ -214,21 +241,16 @@ class AlertManager:
             ).hexdigest()
             headers["X-Signature"] = f"sha256={signature}"
 
+        client = await self._get_client()
+
         for attempt in range(self._config.webhook_retries):
             try:
-                req = urllib.request.Request(
+                resp = await client.post(
                     self._config.webhook_url,  # type: ignore[arg-type]
-                    data=payload,
+                    content=payload,
                     headers=headers,
-                    method="POST",
                 )
-                # Use asyncio to run the blocking call in a thread
-                loop = asyncio.get_event_loop()
-                resp = await loop.run_in_executor(
-                    None,
-                    lambda: urllib.request.urlopen(req, timeout=self._config.webhook_timeout),  # nosec B310 — webhook_url defaults to https://, validated at config time
-                )
-                logger.debug("Webhook sent: HTTP %s", resp.status)
+                logger.debug("Webhook sent: HTTP %s", resp.status_code)
                 return
             except Exception as exc:
                 logger.warning(
@@ -506,6 +528,7 @@ class RealtimeListener:
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        await self._alert_manager.close()
         logger.info("Real-time listener stopped")
 
     async def _run_syslog(self) -> None:  # pragma: no cover
