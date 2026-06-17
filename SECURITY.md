@@ -23,7 +23,7 @@ We will respond within 48 hours and coordinate disclosure.
 
 ### The Risk
 
-Inventory YAML files can contain plaintext passwords. If committed to version control or shared, this creates credential leakage risk. Even with `SecretStr` and log redaction, the password value exists in the file on disk.
+Inventory YAML files can contain plaintext passwords. If committed to version control or shared, this creates credential leakage risk. Even with `SecretStr` and log redaction, the password value exists in memory and could be exposed via process inspection, core dumps, or debuggers.
 
 ### Recommended: Environment Variables (Minimum)
 
@@ -142,8 +142,8 @@ When using `--inventory netbox://host`, audnet authenticates to NetBox via the `
 
 ```bash
 export NETBOX_TOKEN="your-netbox-api-token"
-net-audit audit --inventory netbox://netbox.example.com
-net-audit audit --inventory netbox://netbox.example.com?site=dc1&role=router
+audnet audit --inventory netbox://netbox.example.com
+audnet audit --inventory netbox://netbox.example.com?site=dc1&role=router
 ```
 
 - The token is never logged or written to disk
