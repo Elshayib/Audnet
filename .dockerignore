@@ -29,7 +29,9 @@ env
 # Docs (not needed in image)
 docs
 *.md
+!README.md
 LICENSE
+!LICENSE
 
 # Tests (not needed in image)
 tests
