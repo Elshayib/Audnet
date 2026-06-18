@@ -11,7 +11,7 @@ FROM python:3.14-slim AS builder
 RUN pip install --no-cache-dir uv
 
 WORKDIR /build
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
 ARG AUDNET_VERSION=0.0.0
