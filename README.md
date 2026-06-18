@@ -541,7 +541,8 @@ audnet/
 ├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy, bandit, etc.)
 ├── Dockerfile                  # Multi-stage Docker build (~70MB image)
 ├── docker-compose.yml          # Container orchestration with cron scheduling
-├── entrypoint.sh               # Container entrypoint (cron/once/shell modes)
+├── docker/
+│   └── entrypoint.sh           # Container entrypoint (cron/once/shell modes)
 ├── benchmarks/
 │   └── bench_collectors.py     # Sync vs async collector performance benchmarks
 ├── inventories/
@@ -556,6 +557,7 @@ audnet/
 │       ├── release.yml         # GitHub Release creation on v* tags
 │       ├── auto-close-issues.yml  # Auto-close linked issues on PR merge
 │       ├── issue-labeler.yml   # Auto-label issues
+│       ├── labeler.yml         # Auto-label PRs by changed paths
 │       └── size-label.yml      # Auto-label PR size
 ├── src/audnet/
 │   ├── __init__.py             # Package init, version
@@ -1073,6 +1075,7 @@ All configuration is via environment variables:
 | `AUDNET_REPORTS` | `/app/reports` | Report output directory |
 | `AUDNET_HISTORY_DIR` | `/app/.net-audit` | History database directory |
 | `NETBOX_TOKEN` | (none) | NetBox API token (required for `netbox://` inventory) |
+| `AUDNET_SMTP_PASSWORD` | (none) | SMTP password for email alerts (used by `listen` command) |
 
 ### Volume mounts
 
