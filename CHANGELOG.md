@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Build
+
+- `.dockerignore`: add `!README.md` and `!LICENSE` allowlist entries; `Dockerfile`: copy `README.md` in builder stage for hatchling metadata (#199)
+
+### Documentation
+
+- SECURITY.md version table updated: 0.3.x supported, 0.2.x EOL (#174)
+- README project structure tree: fix `entrypoint.sh` path to `docker/entrypoint.sh`, add missing `labeler.yml` workflow, add `AUDNET_SMTP_PASSWORD` to Docker env var table
+- CHANGELOG.md: reorganized — moved all v0.3.0 fixes/performance items from `[Unreleased]` to `[0.3.0]` section
+
+## [0.3.0] - 2026-06-18
+
+### Added
+
+- `prompt=True, hide_input=True` for `smtp_password` CLI option with `AUDNET_SMTP_PASSWORD` env var support (#167)
+- `git-rollback` command (renamed from `rollback`) with clarified docstring (#168)
+- SNMP trap receiver startup in `RealtimeListener.start()` when `snmp_trap_bind_port > 0` (#169)
+- `--timeout` option for `remediate` CLI command (#166)
+
 ### Fixed
 
 - `smtp_password` exposed as plain CLI option in `listen` command — visible in process listings and shell history (#167)
@@ -20,13 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--check` comma-splitting broken in CLI — single `--check a,b` was not split (#185)
 - `scrapli._get_scrapli_driver` raises `KeyError` for unknown vendors — no fallback path (#186)
 - Webhook alert delivery used blocking `urllib` in executor thread — consumes thread pool, creates new TCP connection per alert, blocks on retries (#193)
-
-### Added
-
-- `prompt=True, hide_input=True` for `smtp_password` CLI option with `AUDNET_SMTP_PASSWORD` env var support (#167)
-- `git-rollback` command (renamed from `rollback`) with clarified docstring (#168)
-- SNMP trap receiver startup in `RealtimeListener.start()` when `snmp_trap_bind_port > 0` (#169)
-- `--timeout` option for `remediate` CLI command (#166)
 
 ### Performance
 
@@ -44,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - README vendor table updated: added Fortinet, Aruba, HP ProCurve, Cisco ASA (#172)
 - README project structure tree updated with missing source and test files (#173)
-- SECURITY.md version table updated: 0.2.x supported, 0.1.x EOL (#174)
+- SECURITY.md version table updated: 0.3.x supported, 0.2.x EOL (#174)
 - CHANGELOG.md updated with all recent bug fixes and features (#175)
 
 ### Build
