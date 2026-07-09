@@ -81,6 +81,11 @@ class TestCliVersion:
         assert result.exit_code == 0
         assert "audnet" in result.output
 
+    def test_version_flag(self):
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "audnet" in result.output
+
 
 class TestCliAudit:
     @patch("audnet.cli.collect_all")
