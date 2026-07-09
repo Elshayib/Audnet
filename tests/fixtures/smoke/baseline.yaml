@@ -1,0 +1,10 @@
+checks:
+  ssh_v2_only:
+    description: "SSHv2 must be enabled; SSHv1 is prohibited"
+    severity: critical
+    rule: ssh_v2_only
+
+  password_encryption:
+    description: "Password encryption service must be enabled"
+    severity: high
+    rule: password_encryption

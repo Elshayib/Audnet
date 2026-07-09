@@ -31,6 +31,27 @@ app = typer.Typer(
 console = Console()
 logger = structlog.get_logger("audnet")
 
+
+def _version_callback(value: bool) -> None:
+    """Print version and exit when ``--version`` is passed."""
+    if value:
+        console.print(f"audnet {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the audnet version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Network Security & Compliance State Auditor."""
+    del version  # handled by callback
+
 _SECRET_KEYS = frozenset(
     {
         "password",

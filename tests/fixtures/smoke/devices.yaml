@@ -1,0 +1,10 @@
+defaults:
+  username: smoke
+  device_type: cisco_ios
+  port: 22
+  timeout: 5
+
+devices:
+  - name: smoke-rtr-01
+    host: 127.0.0.1
+    password: "${SMOKE_DEVICE_PASSWORD}"

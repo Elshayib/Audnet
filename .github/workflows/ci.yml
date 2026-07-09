@@ -10,11 +10,27 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
-  lint:
+  validate:
+    uses: ./.github/workflows/reusable-validate.yml
+    with:
+      python-version: "3.14"
+      run-matrix-tests: true
+    permissions:
+      contents: read
+      security-events: write
+
+  smoke:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,78 +40,49 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "latest"
+          version: "0.11.26"
+          enable-cache: true
 
-      - name: Create venv and install dependencies
+      - name: Sync build tooling
+        run: uv sync --locked --extra dev
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Install wheel into clean venv and smoke-test CLI
+        env:
+          SMOKE_DEVICE_PASSWORD: smoke-not-real
         run: |
-          uv venv
-          uv pip install -e ".[dev]"
+          set -euo pipefail
+          uv venv .smoke-venv
+          .smoke-venv/bin/pip install dist/*.whl
+          .smoke-venv/bin/audnet --version
+          .smoke-venv/bin/audnet audit \
+            --inventory tests/fixtures/smoke/devices.yaml \
+            --baseline tests/fixtures/smoke/baseline.yaml \
+            --dry-run
 
-      - name: Lint with ruff
-        run: uv run ruff check src/ tests/
-
-      - name: Type check with mypy
-        run: uv run mypy src/
-
-  security:
-    needs: lint
+  docker-smoke:
+    needs: smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
         with:
-          version: "latest"
+          context: .
+          push: false
+          load: true
+          tags: audnet:ci-smoke
+          build-args: |
+            AUDNET_VERSION=0.0.0+ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Create venv and install dependencies
+      - name: Run audnet --version in container
         run: |
-          uv venv
-          uv pip install -e ".[dev]"
-
-      - name: Run Bandit security scan
-        run: uv run bandit -r src/ -c pyproject.toml
-
-      - name: Run pip-audit dependency check
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: uv run pip-audit --ignore-vuln CVE-2026-44405 --ignore-vuln PYSEC-2026-196 --ignore-vuln CVE-2026-30922
-
-  test:
-    needs: security
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-
-      - name: Create venv and install dependencies
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
-
-      - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
-
-      - name: Coverage report
-        run: uv run pytest tests/ --cov=audnet --cov-report=term-missing --cov-fail-under=90
+          docker run --rm --entrypoint audnet audnet:ci-smoke --version
