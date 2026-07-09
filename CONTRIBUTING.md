@@ -121,7 +121,7 @@ Configure branch protection on `master` so merges require the CI workflow jobs:
 
 | Workflow | Required jobs |
 |----------|---------------|
-| [CI](.github/workflows/ci.yml) | `validate` (lint / security / test matrix), `smoke`, `docker-smoke` |
+| [CI](.github/workflows/ci.yml) | After the first CI run, require the check names GitHub shows for this workflow — typically `validate / lint`, `validate / security`, `validate / test (3.12)`, `validate / test (3.13)`, `validate / test (3.14)`, `smoke`, and `docker-smoke` |
 
 These jobs must be green before merge. The Release workflow is tag-driven and is not a PR merge gate.
 

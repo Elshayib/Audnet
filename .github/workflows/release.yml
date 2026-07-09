@@ -100,6 +100,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
+      # hatch-vcs / SETUPTOOLS_SCM_PRETEND_VERSION expect a PEP 440 version without a leading "v"
+      - name: Normalize version for wheel metadata
+        id: pep440
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -110,7 +115,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            AUDNET_VERSION=${{ github.ref_name }}
+            AUDNET_VERSION=${{ steps.pep440.outputs.VERSION }}
 
       - name: Verify image size
         run: |
