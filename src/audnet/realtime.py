@@ -20,6 +20,8 @@ from typing import Any, Callable
 
 import asyncssh
 
+from audnet.models import Device
+
 try:
     import httpx  # noqa: F401
 
@@ -97,6 +99,9 @@ class AlertConfig:
 
     # Polling fallback interval (seconds)
     poll_interval: int = 300
+
+    # Suppress outbound webhook/email delivery (log only)
+    dry_run: bool = False
 
 
 @dataclass
@@ -185,6 +190,14 @@ class AlertManager:
 
     async def send_alert(self, event: ChangeEvent) -> None:
         """Send alert for a change event, respecting rate limits and dedup."""
+        if self._config.dry_run:
+            logger.info(
+                "DRY RUN — alert suppressed for %s (%s)",
+                event.device_name,
+                event.change_summary or event.event_type,
+            )
+            return
+
         if self._is_duplicate(event):
             logger.debug("Deduped alert for %s", event.device_name)
             return
@@ -250,8 +263,15 @@ class AlertManager:
                     content=payload,
                     headers=headers,
                 )
-                logger.debug("Webhook sent: HTTP %s", resp.status_code)
-                return
+                if 200 <= resp.status_code < 300:
+                    logger.debug("Webhook sent: HTTP %s", resp.status_code)
+                    return
+                logger.warning(
+                    "Webhook attempt %d/%d got HTTP %s",
+                    attempt + 1,
+                    self._config.webhook_retries,
+                    resp.status_code,
+                )
             except Exception as exc:
                 logger.warning(
                     "Webhook attempt %d/%d failed: %s",
@@ -259,8 +279,8 @@ class AlertManager:
                     self._config.webhook_retries,
                     exc,
                 )
-                if attempt < self._config.webhook_retries - 1:
-                    await asyncio.sleep(2**attempt)
+            if attempt < self._config.webhook_retries - 1:
+                await asyncio.sleep(2**attempt)
 
     async def _send_email(self, event: ChangeEvent) -> None:
         """Send email alert via SMTP."""
@@ -344,7 +364,10 @@ class SyslogProtocol(asyncio.DatagramProtocol):
 
         # Map source IP to device name
         device_name = self._device_map.get(source_ip, f"unknown-{source_ip}")
-        asyncio.ensure_future(self._on_message(device_name, source_ip, message))
+        result = self._on_message(device_name, source_ip, message)
+        # Support both sync callbacks and async coroutines
+        if asyncio.iscoroutine(result):
+            asyncio.ensure_future(result)
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +436,9 @@ class SnmpTrapReceiver:
             trap_details.append(f"{oid}={value}")
 
         message = "; ".join(trap_details) if trap_details else "SNMP trap received"
-        asyncio.ensure_future(self._on_trap(device_name, source_ip, message))
+        result = self._on_trap(device_name, source_ip, message)
+        if asyncio.iscoroutine(result):
+            asyncio.ensure_future(result)
 
     def close(self) -> None:  # pragma: no cover
         """Close the SNMP engine."""
@@ -469,12 +494,15 @@ class RealtimeListener:
         self,
         alert_config: AlertConfig,
         alert_manager: AlertManager,
-        inventory: dict[str, str],  # device_name -> host_ip
+        devices: dict[str, Device],
+        baseline: dict[str, Any] | None = None,
     ) -> None:
         self._alert_config = alert_config
         self._alert_manager = alert_manager
-        self._inventory = inventory
-        self._device_map = {ip: name for name, ip in inventory.items()}  # ip -> name
+        self._devices = devices
+        self._inventory = {name: device.host for name, device in devices.items()}
+        self._device_map = {device.host: name for name, device in devices.items()}
+        self._baseline = baseline
         self._running = False
         self._tasks: list[asyncio.Task[None]] = []
 
@@ -547,7 +575,7 @@ class RealtimeListener:
                 change_summary=ChangeDetector.summarize_change(message),
                 severity="high",
             )
-            asyncio.ensure_future(self._alert_manager.send_alert(event))
+            asyncio.ensure_future(self._handle_change(event))
 
         transport, protocol = await loop.create_datagram_endpoint(
             lambda: SyslogProtocol(on_message, self._device_map),
@@ -575,20 +603,25 @@ class RealtimeListener:
             if not self._running:
                 break
 
-            for device_name, host_ip in self._inventory.items():
+            for device_name, device in self._devices.items():
                 try:
-                    config_text = await self._poll_device(host_ip)
+                    config_text = await self._poll_device(device)
+                    # None means poll failed — keep last good hash to avoid
+                    # false change events on transient SSH failures.
+                    if config_text is None:
+                        logger.warning("Poll failed for %s (keeping last known hash)", device_name)
+                        continue
                     if device_name in last_configs and last_configs[device_name] != config_text:
                         event = ChangeEvent(
                             device_name=device_name,
-                            source_ip=host_ip,
+                            source_ip=device.host,
                             event_type="poll",
                             timestamp=time.time(),
                             raw_message="Configuration changed (poll detected)",
                             change_summary="Configuration drift detected by scheduled poll",
                             severity="medium",
                         )
-                        asyncio.ensure_future(self._alert_manager.send_alert(event))
+                        asyncio.ensure_future(self._handle_change(event))
                     last_configs[device_name] = config_text
                 except Exception as exc:
                     logger.warning("Poll failed for %s: %s", device_name, exc)
@@ -604,7 +637,30 @@ class RealtimeListener:
             change_summary=f"SNMP trap from {device_name}: {message}",
             severity="high",
         )
-        asyncio.ensure_future(self._alert_manager.send_alert(event))
+        asyncio.ensure_future(self._handle_change(event))
+
+    async def _handle_change(self, event: ChangeEvent) -> None:
+        """Enrich a change event with compliance results and send alerts."""
+        if self._baseline and event.device_name in self._devices:
+            from audnet.collector_async import collect_device_async
+            from audnet.compliance import run_checks
+
+            device = self._devices[event.device_name]
+            snapshot = await collect_device_async(device)
+            if not snapshot.collection_error:
+                results = run_checks(snapshot, self._baseline)
+                event.compliance_results = [
+                    {
+                        "check_name": r.check_name,
+                        "passed": r.passed,
+                        "severity": r.severity,
+                        "detail": r.detail,
+                    }
+                    for r in results
+                ]
+                if any(not r.passed for r in results):
+                    event.severity = "high"
+        await self._alert_manager.send_alert(event)
 
     async def _run_snmp(self, receiver: SnmpTrapReceiver) -> None:  # pragma: no cover
         """Run the SNMP trap receiver.
@@ -623,33 +679,54 @@ class RealtimeListener:
         finally:
             receiver.close()
 
-    async def _poll_device(self, host_ip: str) -> str:  # pragma: no cover
+    async def _poll_device(self, device: Device) -> str | None:  # pragma: no cover
         """Poll a single device for its running config hash (lightweight).
 
-        Returns the SHA256 hex digest of the running config, not the full
-        config text. This reduces memory from O(config_size) to O(32 bytes)
-        per device in the polling loop's last_configs cache.
+        Returns the SHA256 hex digest of the running config, or ``None`` on
+        failure so callers can keep the last known-good hash (avoiding false
+        change events when SSH is temporarily unavailable).
         """
+        from audnet.vendor_registry import get_commands
+
+        commands = get_commands(device.device_type)
+        config_cmd = commands[2]
+        connect_kwargs: dict[str, Any] = {
+            "host": device.host,
+            "port": device.port,
+            "username": device.username,
+            "connect_timeout": 10,
+        }
+        password = device.get_password()
+        if password:
+            connect_kwargs["password"] = password
+        if device.use_keys and device.key_file:
+            connect_kwargs["client_keys"] = [device.key_file]
+        elif device.use_keys:
+            connect_kwargs["client_keys"] = "default"
+
         try:
-            async with asyncssh.connect(
-                host_ip,
-                known_hosts=None,
-                connect_timeout=10,
-            ) as conn:
-                result = await conn.run("show running-config", timeout=30)
+            async with asyncssh.connect(**connect_kwargs) as conn:
+                result = await conn.run(config_cmd, timeout=30)
+                # Only treat real integer non-zero exit as failure (MagicMock-safe)
+                exit_status = getattr(result, "exit_status", None)
+                if isinstance(exit_status, int) and exit_status != 0:
+                    return None
                 stdout = result.stdout
+                if stdout is None:
+                    return None
                 if isinstance(stdout, bytes):
                     return hashlib.sha256(stdout).hexdigest()
-                return hashlib.sha256((stdout or "").encode()).hexdigest()
+                return hashlib.sha256(str(stdout).encode()).hexdigest()
         except Exception:
-            return ""
+            return None
 
 
 async def start_listener(  # pragma: no cover
     alert_config: AlertConfig,
-    inventory: dict[str, str],
+    devices: dict[str, Device],
+    baseline: dict[str, Any] | None = None,
 ) -> None:
     """Convenience function to start the real-time listener."""
     alert_manager = AlertManager(alert_config)
-    listener = RealtimeListener(alert_config, alert_manager, inventory)
+    listener = RealtimeListener(alert_config, alert_manager, devices, baseline=baseline)
     await listener.start()

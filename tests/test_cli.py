@@ -318,7 +318,7 @@ class TestCliAudit:
                 "nonexistent",
             ],
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found" in result.output
 
     @patch("audnet.cli.collect_all")

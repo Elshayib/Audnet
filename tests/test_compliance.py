@@ -698,7 +698,7 @@ class TestComplianceEdgeCases:
         assert "unknown" in r.detail
 
     def test_ntp_short_line_no_valid_servers(self):
-        """NTP line with fewer than 3 parts is skipped, no valid servers found."""
+        """Incomplete NTP lines are configuration defects and must fail."""
         snap = _snap("rtr01", ["ntp server"])
         bl = {
             "checks": {
@@ -711,8 +711,8 @@ class TestComplianceEdgeCases:
             }
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
-        # Short line skipped, no valid servers -> violations empty -> passes
-        assert r.passed is True
+        assert r.passed is False
+        assert "incomplete" in r.detail.lower()
 
     def test_ntp_vrf_syntax_server_approved(self):
         """IOS-XE 'ntp server vrf <name> <ip>' with approved IP passes."""
@@ -818,11 +818,11 @@ class TestComplianceEdgeCases:
             }
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "ntp_config"][0]
-        # Line has vrf but only 4 parts (len < 5), so it's skipped -> no violations -> passes
-        assert r.passed is True
+        # Incomplete VRF line is a violation (fail closed)
+        assert r.passed is False
 
     def test_syslog_short_line_no_valid_servers(self):
-        """Syslog line with fewer than 3 parts is skipped, no valid servers found."""
+        """Incomplete syslog lines are configuration defects and must fail."""
         snap = _snap("rtr01", ["logging host"])
         bl = {
             "checks": {
@@ -835,7 +835,8 @@ class TestComplianceEdgeCases:
             }
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "syslog_config"][0]
-        assert r.passed is True
+        assert r.passed is False
+        assert "incomplete" in r.detail.lower()
 
     def test_ntp_all_servers_approved(self):
         """All NTP servers in approved list passes."""
@@ -875,16 +876,15 @@ class TestComplianceEdgeCases:
         r = [x for x in run_checks(snap, bl) if x.check_name == "syslog_config"][0]
         assert r.passed is True
 
-    def test_multiple_ssh_lines_first_wins(self):
-        """When multiple SSH version lines exist, first match wins."""
-        snap = _snap("rtr01", ["ip ssh version 1", "ip ssh version 2"])
+    def test_multiple_ssh_lines_v1_anywhere_fails(self):
+        """SSHv1 anywhere fails even if SSHv2 also appears (evaluate all lines)."""
+        snap = _snap("rtr01", ["ip ssh version 2", "ip ssh version 1"])
         bl = {
             "checks": {
                 "ssh_v2_only": {"severity": "critical", "rule": "ssh_v2_only", "description": ""}
             }
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "ssh_v2_only"][0]
-        # fail_value "version 1" is checked before ok_value "version 2"
         assert r.passed is False
 
 
@@ -971,7 +971,10 @@ class TestSnmpV3Only:
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
         assert r.passed is False
+        # Community values are redacted in details
         assert "snmp-server community" in r.detail
+        assert "public" not in r.detail
+        assert "***" in r.detail
 
     def test_fail_multiple_community_strings(self):
         """Fails and reports all community string lines."""
@@ -993,7 +996,10 @@ class TestSnmpV3Only:
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
         assert r.passed is False
-        assert "public" in r.detail
+        # Community names redacted; both lines still reported
+        assert r.detail.count("***") >= 2
+        assert "public" not in r.detail
+        assert "private" not in r.detail
 
     def test_pass_when_no_community_strings(self):
         """Passes when no snmp-server community lines exist."""
@@ -1067,7 +1073,8 @@ class TestSnmpV3Only:
         }
         r = [x for x in run_checks(snap, bl) if x.check_name == "snmp_v3_only"][0]
         assert r.passed is False
-        assert "public" in r.detail
+        assert "***" in r.detail
+        assert "public" not in r.detail
 
 
 class TestUnusedIfaceShutdown:

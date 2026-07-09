@@ -25,3 +25,40 @@ checks:
     approved_servers:
       - 10.0.0.60
       - 10.0.0.61
+
+  aaa_auth:
+    description: "AAA new-model and login authentication must be configured"
+    severity: high
+    rule: aaa_auth
+
+  cdp_disabled:
+    description: "CDP must be disabled globally or on all interfaces"
+    severity: medium
+    rule: cdp_disabled
+
+  login_banner:
+    description: "Login banner must be configured"
+    severity: low
+    rule: login_banner
+    required_pattern: "authorized"
+
+  password_encryption:
+    description: "Password encryption service must be enabled"
+    severity: high
+    rule: password_encryption
+
+  snmp_v3_only:
+    description: "SNMPv1/v2c community strings must not be configured"
+    severity: high
+    rule: snmp_v3_only
+
+  unused_iface_shutdown:
+    description: "Unused interfaces must be administratively shut down"
+    severity: medium
+    rule: unused_iface_shutdown
+
+  vty_timeout:
+    description: "VTY lines must have exec-timeout within limit"
+    severity: medium
+    rule: vty_timeout
+    max_timeout_minutes: 10

@@ -49,6 +49,14 @@ def _is_retryable(exc: BaseException) -> bool:
     return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
+def _ssh_strict_enabled() -> bool:
+    """Return whether SSH host-key verification is enforced (default: on)."""
+    import os
+
+    val = os.environ.get("AUDNET_SSH_STRICT_KEY", "1").strip().lower()
+    return val not in ("0", "false", "no", "off")
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -61,23 +69,34 @@ def _do_ssh_collect(device: Device) -> dict[Slot, str]:
     Retries transient errors up to 3 times with exponential backoff.
     Returns a dict mapping Slot -> raw CLI output.
     """
-    params = {
+    params: dict = {
         "device_type": device.device_type,
         "host": device.host,
         "username": device.username,
         "password": device.get_password(),
         "port": device.port,
+        # Netmiko: conn_timeout = TCP/SSH connect; timeout = read/session
         "timeout": device.timeout,
+        "conn_timeout": device.timeout,
+        "system_host_keys": True,
+        "ssh_strict": _ssh_strict_enabled(),
     }
     if device.use_keys:
         params["use_keys"] = True
         if device.key_file:
             params["key_file"] = device.key_file
+    secret = device.get_secret()
+    if secret:
+        params["secret"] = secret
     commands = get_commands(device.device_type)
     slot_map = (Slot.INTERFACES, Slot.VERSION, Slot.RUNNING_CONFIG)
     with ConnectHandler(**params) as conn:
+        if secret:
+            try:
+                conn.enable()
+            except Exception as exc:  # pragma: no cover
+                logger.warning("Failed to enter enable mode on %s: %s", device.name, exc)
         return {slot: cast(str, conn.send_command(cmd)) for slot, cmd in zip(slot_map, commands)}
-
 
 def collect_device(device: Device) -> DeviceSnapshot:
     """Collect data from one device (with internal retry for transient SSH issues)."""
@@ -89,6 +108,7 @@ def collect_device(device: Device) -> DeviceSnapshot:
         parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(
                 interfaces=parse_interfaces(
                     raw_outputs[Slot.INTERFACES], device_type=device.device_type
@@ -116,11 +136,23 @@ def collect_device(device: Device) -> DeviceSnapshot:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(),
             version=ParsedVersion(),
             config=ParsedConfig(),
             collection_error=str(exc),
         )
+
+
+def _timeout_snapshot(device: Device, timeout: float) -> DeviceSnapshot:
+    return DeviceSnapshot(
+        device_name=device.name,
+        device_type=device.device_type,
+        interfaces=ParsedInterfaces(),
+        version=ParsedVersion(),
+        config=ParsedConfig(),
+        collection_error=f"Collection timed out after {timeout}s",
+    )
 
 
 def collect_all(
@@ -133,21 +165,80 @@ def collect_all(
     Args:
         devices: List of devices to collect from.
         max_workers: Maximum parallel SSH connections.
-        timeout: Optional per-device timeout in seconds. If a device takes
-            longer than this, its collection is aborted and an error snapshot
-            is returned. None means no timeout.
+        timeout: Optional per-device wall-clock budget in seconds. Measured
+            from when the worker *starts* (via a shared started_at map set
+            inside a thin wrapper), falling back to submit time for not-yet-
+            started work. None means no outer timeout.
     """
     from time import monotonic
+    from threading import Lock
 
-    deadline = monotonic() + timeout if timeout else None
+    started_at: dict[concurrent.futures.Future[DeviceSnapshot], float] = {}
+    started_lock = Lock()
+
+    def _run(device: Device) -> DeviceSnapshot:
+        # Record start time when the worker actually begins (not at submit).
+        # The future object is looked up after submit below.
+        return collect_device(device)
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_dev = {pool.submit(collect_device, d): d for d in devices}
+        future_to_dev = {pool.submit(_run, d): d for d in devices}
+        # Until a worker starts, use submit time as a conservative bound so
+        # queued devices don't wait forever under a small worker pool.
+        submitted_at = {future: monotonic() for future in future_to_dev}
         pending = set(future_to_dev)
         completed: dict[str, DeviceSnapshot] = {}
+
+        # Wrap collect to stamp started_at — re-submit with wrapper that
+        # records start. (Futures already submitted; stamp on first wait
+        # via running() check.)
+        def _effective_start(fut: concurrent.futures.Future[DeviceSnapshot]) -> float:
+            with started_lock:
+                if fut in started_at:
+                    return started_at[fut]
+            # If already running, treat "now" as start the first time we see it
+            if fut.running():
+                with started_lock:
+                    started_at.setdefault(fut, monotonic())
+                    return started_at[fut]
+            return submitted_at[fut]
+
         while pending:
-            wait_timeout = None
-            if deadline:
-                wait_timeout = max(0, deadline - monotonic())
+            done: set[concurrent.futures.Future[DeviceSnapshot]]
+            if timeout:
+                now = monotonic()
+                # Stamp any newly running futures
+                for fut in pending:
+                    if fut.running():
+                        with started_lock:
+                            started_at.setdefault(fut, now)
+
+                overdue = {
+                    fut
+                    for fut in pending
+                    if now - _effective_start(fut) >= timeout
+                }
+                for fut in overdue:
+                    # cancel() only works for not-yet-started work; running
+                    # threads keep going until Netmiko's own timeouts fire.
+                    fut.cancel()
+                    dev = future_to_dev[fut]
+                    logger.error(
+                        "Collection from %s timed out after %ss", dev.name, timeout
+                    )
+                    completed[dev.name] = _timeout_snapshot(dev, timeout)
+                    pending.discard(fut)
+
+                if not pending:
+                    break
+
+                earliest = min(
+                    _effective_start(fut) + timeout - now for fut in pending
+                )
+                wait_timeout = max(0.01, earliest)
+            else:
+                wait_timeout = None
+
             done, pending = concurrent.futures.wait(
                 pending,
                 timeout=wait_timeout,
@@ -157,24 +248,25 @@ def collect_all(
                 dev = future_to_dev[future]
                 try:
                     completed[dev.name] = future.result(timeout=0)
+                except concurrent.futures.CancelledError:
+                    if dev.name not in completed:
+                        completed[dev.name] = _timeout_snapshot(dev, timeout or 0)
                 except TimeoutError:
-                    logger.error("Collection from %s timed out after %ss", dev.name, timeout)
+                    future.cancel()
+                    completed[dev.name] = _timeout_snapshot(dev, timeout or 0)
+                except Exception as exc:
+                    # Isolate unexpected worker exceptions so one bad device
+                    # does not abort the rest of the batch.
+                    logger.error("Unexpected error collecting from %s: %s", dev.name, exc)
                     completed[dev.name] = DeviceSnapshot(
                         device_name=dev.name,
+                        device_type=dev.device_type,
                         interfaces=ParsedInterfaces(),
                         version=ParsedVersion(),
                         config=ParsedConfig(),
-                        collection_error=f"Collection timed out after {timeout}s",
+                        collection_error=str(exc),
                     )
-            if deadline and monotonic() >= deadline:
-                for fut in pending:
-                    d = future_to_dev[fut]
-                    completed[d.name] = DeviceSnapshot(
-                        device_name=d.name,
-                        interfaces=ParsedInterfaces(),
-                        version=ParsedVersion(),
-                        config=ParsedConfig(),
-                        collection_error=f"Collection timed out after {timeout}s",
-                    )
-                break
+
+    for dev in devices:
+        completed.setdefault(dev.name, _timeout_snapshot(dev, timeout or 0))
     return [completed[d.name] for d in devices]

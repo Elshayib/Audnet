@@ -33,6 +33,14 @@ def _db_path(history_dir: Path) -> Path:
     return history_dir / "history.db"
 
 
+def _connect(db_file: Path) -> sqlite3.Connection:
+    """Open SQLite with WAL + busy timeout for concurrent audit writers."""
+    conn = sqlite3.connect(db_file, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
 def init_db(history_dir: Path | None = None) -> Path:
     """Create the history database and schema if they don't exist.
 
@@ -42,7 +50,7 @@ def init_db(history_dir: Path | None = None) -> Path:
         history_dir = _DEFAULT_HISTORY_DIR
     history_dir.mkdir(parents=True, exist_ok=True)
     db_file = _db_path(history_dir)
-    with sqlite3.connect(db_file) as conn:
+    with _connect(db_file) as conn:
         conn.executescript(_CREATE_TABLE_SQL)
         conn.executescript(_CREATE_INDEX_SQL)
     return db_file
@@ -54,20 +62,23 @@ def save_run(
 ) -> int:
     """Save audit reports to the history database.
 
+    Collection-error reports (``checks == []`` and ``overall_pass is False``)
+    are still stored for audit trail completeness, but :func:`get_last_runs`
+    and :func:`diff_runs` skip them as drift baselines so a failed collection
+    cannot wipe regression detection.
+
     Returns the number of report rows inserted.
     """
     if history_dir is None:
         history_dir = _DEFAULT_HISTORY_DIR
     history_dir.mkdir(parents=True, exist_ok=True)
     db_file = _db_path(history_dir)
-    # Ensure schema exists (idempotent — safe to call every run)
-    with sqlite3.connect(db_file) as conn:
-        conn.executescript(_CREATE_TABLE_SQL)
-        conn.executescript(_CREATE_INDEX_SQL)
 
     run_at = datetime.now(timezone.utc).isoformat()
     rows_inserted = 0
-    with sqlite3.connect(db_file) as conn:
+    with _connect(db_file) as conn:
+        conn.executescript(_CREATE_TABLE_SQL)
+        conn.executescript(_CREATE_INDEX_SQL)
         for report in reports:
             checks_data: list[dict[str, Any]] = []
             for c in report.checks:
@@ -141,19 +152,24 @@ def get_runs(
     query = f"SELECT * FROM runs {where_clause} ORDER BY id DESC LIMIT ?"  # nosec B608
     params.append(limit)
 
-    with sqlite3.connect(db_file) as conn:
+    with _connect(db_file) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(query, params).fetchall()
 
     result = []
     for row in rows:
+        try:
+            checks = json.loads(row["checks_json"])
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Corrupt checks_json for run id=%s — skipping", row["id"])
+            continue
         result.append(
             {
                 "id": row["id"],
                 "run_at": row["run_at"],
                 "device_name": row["device_name"],
                 "overall_pass": bool(row["overall_pass"]),
-                "checks": json.loads(row["checks_json"]),
+                "checks": checks,
             }
         )
     return result
@@ -164,20 +180,40 @@ def _parse_duration(since: str) -> Any:
     from datetime import timedelta
 
     since = since.strip().lower()
-    if since.endswith("d"):
-        return timedelta(days=int(since[:-1]))
-    elif since.endswith("h"):
-        return timedelta(hours=int(since[:-1]))
-    elif since.endswith("w"):
-        return timedelta(weeks=int(since[:-1]))
-    else:
+    if not since or since[-1] not in ("d", "h", "w"):
         raise ValueError(f"Invalid duration '{since}'. Use Nd (days), Nh (hours), or Nw (weeks).")
+    num_part = since[:-1]
+    if not num_part or not num_part.lstrip("-").isdigit():
+        raise ValueError(f"Invalid duration '{since}'. Use Nd (days), Nh (hours), or Nw (weeks).")
+    amount = int(num_part)
+    if amount < 0:
+        raise ValueError(f"Invalid duration '{since}': must be non-negative")
+    if since.endswith("d"):
+        return timedelta(days=amount)
+    if since.endswith("h"):
+        return timedelta(hours=amount)
+    return timedelta(weeks=amount)
+
+
+def _is_complete_baseline(run: dict[str, Any]) -> bool:
+    """Return True if a historical run can be used as a drift baseline.
+
+    Empty-check failure rows (typical of collection errors) must not become
+    the baseline — they would hide real regressions on the next healthy run.
+    """
+    checks = run.get("checks") or []
+    if not checks:
+        # Empty checks + fail = collection error or bad filter; skip for drift
+        return False
+    return True
 
 
 def get_last_runs(
     history_dir: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Get the most recent run for each device.
+    """Get the most recent *complete* run for each device.
+
+    Skips empty-check rows so collection failures do not poison drift.
 
     Returns a dict of {device_name: run_dict} where run_dict has
     keys: id, run_at, device_name, overall_pass, checks.
@@ -187,32 +223,38 @@ def get_last_runs(
     db_file = _db_path(history_dir)
     if not db_file.exists():
         return {}
-    with sqlite3.connect(db_file) as conn:
+    with _connect(db_file) as conn:
         conn.row_factory = sqlite3.Row
-        # Get the latest run id per device
-        latest_ids = conn.execute(
-            "SELECT device_name, MAX(id) as max_id FROM runs GROUP BY device_name"
-        ).fetchall()
-        if not latest_ids:
-            return {}
-        # Fetch those rows
-        ids = [row["max_id"] for row in latest_ids]
-        placeholders = ",".join("?" * len(ids))
-        # placeholders is only "?" chars — safe. ids are passed as params.
+        # Latest complete run per device (non-empty checks_json array)
         rows = conn.execute(
-            f"SELECT * FROM runs WHERE id IN ({placeholders})",  # nosec B608
-            ids,
+            """
+            SELECT r.* FROM runs r
+            INNER JOIN (
+                SELECT device_name, MAX(id) AS max_id
+                FROM runs
+                WHERE checks_json IS NOT NULL
+                  AND checks_json != '[]'
+                  AND length(checks_json) > 2
+                GROUP BY device_name
+            ) latest ON r.id = latest.max_id
+            """
         ).fetchall()
     result = {}
     for row in rows:
         device = row["device_name"]
-        result[device] = {
+        try:
+            checks = json.loads(row["checks_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        run = {
             "id": row["id"],
             "run_at": row["run_at"],
             "device_name": device,
             "overall_pass": bool(row["overall_pass"]),
-            "checks": json.loads(row["checks_json"]),
+            "checks": checks,
         }
+        if _is_complete_baseline(run):
+            result[device] = run
     return result
 
 
@@ -235,9 +277,13 @@ def diff_runs(
     unchanged: list[dict[str, Any]] = []
 
     for report in current_reports:
+        # Skip incomplete current reports (collection errors) for drift
+        if not report.checks:
+            continue
+
         last = last_runs.get(report.device_name)
         if last is None:
-            # No prior run — nothing to diff against
+            # No prior complete run — nothing to diff against
             continue
 
         # Build lookup of last run's checks by name

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from audnet.models import Device
 from audnet.realtime import (
     AlertConfig,
     AlertManager,
@@ -14,6 +15,13 @@ from audnet.realtime import (
     RealtimeListener,
     SyslogProtocol,
 )
+
+
+def _devices(inventory: dict[str, str]) -> dict[str, Device]:
+    return {
+        name: Device(name=name, host=host, username="admin", password="test")
+        for name, host in inventory.items()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +323,7 @@ class TestRealtimeListener:
         config = AlertConfig()
         manager = AlertManager(config)
         inventory = {"rtr01": "10.0.0.1", "sw01": "10.0.0.2"}
-        listener = RealtimeListener(config, manager, inventory)
+        listener = RealtimeListener(config, manager, _devices(inventory))
         assert listener._device_map == {"10.0.0.1": "rtr01", "10.0.0.2": "sw01"}
 
     @pytest.mark.asyncio
@@ -323,7 +331,7 @@ class TestRealtimeListener:
         config = AlertConfig(poll_interval=0)
         manager = AlertManager(config)
         inventory = {"rtr01": "10.0.0.1"}
-        listener = RealtimeListener(config, manager, inventory)
+        listener = RealtimeListener(config, manager, _devices(inventory))
         listener._running = True
         task = asyncio.create_task(asyncio.sleep(10))
         listener._tasks.append(task)
@@ -624,28 +632,28 @@ class TestRealtimeListenerExtended:
             syslog_bind_port=1514,
         )
         alert_mgr = AlertManager(config)
-        listener = RealtimeListener(config, alert_mgr, {})
+        listener = RealtimeListener(config, alert_mgr, _devices({}))
         assert listener._alert_config.syslog_bind_host == "127.0.0.1"
         assert listener._alert_config.syslog_bind_port == 1514
 
     def test_listener_initializes_with_empty_tasks(self):
         config = AlertConfig()
         alert_mgr = AlertManager(config)
-        listener = RealtimeListener(config, alert_mgr, {})
+        listener = RealtimeListener(config, alert_mgr, _devices({}))
         assert listener._tasks == []
         assert listener._running is False
 
     def test_device_map_empty_inventory(self):
         config = AlertConfig()
         alert_mgr = AlertManager(config)
-        listener = RealtimeListener(config, alert_mgr, {})
+        listener = RealtimeListener(config, alert_mgr, _devices({}))
         assert listener._device_map == {}
 
     def test_device_map_with_devices(self):
         config = AlertConfig()
         alert_mgr = AlertManager(config)
         inventory = {"rtr01": "10.0.0.1", "rtr02": "10.0.0.2"}
-        listener = RealtimeListener(config, alert_mgr, inventory)
+        listener = RealtimeListener(config, alert_mgr, _devices(inventory))
         assert listener._device_map["10.0.0.1"] == "rtr01"
         assert listener._device_map["10.0.0.2"] == "rtr02"
 
@@ -815,7 +823,8 @@ class TestPollDeviceHash:
             listener = RealtimeListener.__new__(RealtimeListener)
             listener._alert_config = alert_config
 
-            result = asyncio.run(listener._poll_device("10.0.0.1"))
+            device = Device(name="rtr01", host="10.0.0.1", username="admin", password="test")
+            result = asyncio.run(listener._poll_device(device))
 
         expected_hash = hashlib.sha256(mock_result.stdout).hexdigest()
         assert result == expected_hash
@@ -833,7 +842,7 @@ class TestPollDeviceHash:
         assert hash_a != hash_b
 
     def test_poll_device_returns_empty_on_error(self):
-        """_poll_device returns empty string on connection failure."""
+        """_poll_device returns None on connection failure (keep last good hash)."""
         from unittest.mock import AsyncMock, patch
 
         mock_conn = AsyncMock()
@@ -866,8 +875,9 @@ class TestPollDeviceHash:
             listener = RealtimeListener.__new__(RealtimeListener)
             listener._alert_config = alert_config
 
-            result = asyncio.run(listener._poll_device("10.0.0.1"))
-        assert result == ""
+            device = Device(name="rtr01", host="10.0.0.1", username="admin", password="test")
+            result = asyncio.run(listener._poll_device(device))
+        assert result is None
 
     def test_poll_device_handles_string_stdout(self):
         """_poll_device handles str stdout (not just bytes)."""
@@ -908,7 +918,8 @@ class TestPollDeviceHash:
             listener = RealtimeListener.__new__(RealtimeListener)
             listener._alert_config = alert_config
 
-            result = asyncio.run(listener._poll_device("10.0.0.1"))
+            device = Device(name="rtr01", host="10.0.0.1", username="admin", password="test")
+            result = asyncio.run(listener._poll_device(device))
 
         expected_hash = hashlib.sha256(b"hostname rtr01\n").hexdigest()
         assert result == expected_hash

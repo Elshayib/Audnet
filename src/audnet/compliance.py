@@ -90,34 +90,44 @@ _DEFAULT_PATTERNS: dict[str, dict[str, Any]] = {
 }
 
 
-def _get_patterns(rule: str, check_config: dict[str, Any]) -> dict[str, Any]:
+def _get_patterns(
+    rule: str,
+    check_config: dict[str, Any],
+    device_type: str | None = None,
+) -> dict[str, Any]:
     """Return effective patterns for a rule, merging vendor overrides."""
     base = dict(_DEFAULT_PATTERNS.get(rule, {}))
     vendor_overrides = check_config.get("vendor_patterns", {})
-    # vendor_overrides is a dict of {device_type: {pattern_key: value}}
-    # For now we use the base patterns; vendor_overrides can be passed in
-    # the baseline YAML to customize per vendor.
     if isinstance(vendor_overrides, dict):
-        # If vendor_overrides has a 'default' key, apply those as base overrides
         default_overrides = vendor_overrides.get("default", {})
         if isinstance(default_overrides, dict):
             base.update(default_overrides)
+        if device_type:
+            vendor_specific = vendor_overrides.get(device_type, {})
+            if isinstance(vendor_specific, dict):
+                base.update(vendor_specific)
     return base
+
+
+def _is_negated(line: str) -> bool:
+    """Return True if a config line is a ``no …`` negation."""
+    return line.strip().lower().startswith("no ")
 
 
 def _check_ssh_v2_only(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "ssh_v2_only"
 ) -> ComplianceResult:
     sev = config["severity"]
-    patterns = _get_patterns("ssh_v2_only", config)
+    patterns = _get_patterns("ssh_v2_only", config, snapshot.device_type)
     match = patterns["match"]
     ok_value = patterns["ok_value"]
     fail_value = patterns["fail_value"]
 
-    # Single pass with generator — avoid building intermediate list
-    ssh_version_lines = (line for line in snapshot.config.lines if match in line.lower())
-    first = next(ssh_version_lines, None)
-    if first is None:
+    # Evaluate ALL matching lines — SSHv1 anywhere fails even if v2 appears first
+    ssh_version_lines = [
+        line for line in snapshot.config.lines if match in line.lower() and not _is_negated(line)
+    ]
+    if not ssh_version_lines:
         logger.warning("%s: no '%s' directive found", snapshot.device_name, match)
         return ComplianceResult(
             check_name=check_name,
@@ -126,33 +136,53 @@ def _check_ssh_v2_only(
             detail=patterns["fail_detail_missing"],
         )
 
-    # Collect remaining lines only if needed for error reporting
-    remaining = list(ssh_version_lines)
-
-    def _check_line(line: str) -> ComplianceResult | None:
+    has_v1 = False
+    has_v2 = False
+    unexpected: list[str] = []
+    for line in ssh_version_lines:
         ll = line.lower()
+        # Prefer exact-ish match: fail_value as whole token sequence
         if fail_value in ll:
-            logger.info("%s: SSHv1 detected", snapshot.device_name)
-            return ComplianceResult(check_name=check_name, passed=False, severity=sev,
-                                    detail=patterns["fail_detail_v1"])
+            # Avoid matching "ip ssh version 12" as v1 via word boundary
+            if re.search(rf"{re.escape(fail_value)}(?:\s|$)", ll):
+                has_v1 = True
+                continue
         if ok_value in ll:
-            logger.info("%s: SSHv2 confirmed", snapshot.device_name)
-            return ComplianceResult(check_name=check_name, passed=True, severity=sev,
-                                    detail=patterns["ok_detail"])
-        return None
+            if re.search(rf"{re.escape(ok_value)}(?:\s|$)", ll):
+                has_v2 = True
+                continue
+        unexpected.append(line.strip())
 
-    result = _check_line(first)
-    if result:
-        return result
-    for line in remaining:
-        result = _check_line(line)
-        if result:
-            return result
-
-    all_lines = [first] + remaining
+    if has_v1:
+        logger.info("%s: SSHv1 detected", snapshot.device_name)
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_v1"],
+        )
+    if has_v2 and not unexpected:
+        logger.info("%s: SSHv2 confirmed", snapshot.device_name)
+        return ComplianceResult(
+            check_name=check_name,
+            passed=True,
+            severity=sev,
+            detail=patterns["ok_detail"],
+        )
+    if unexpected:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail_unexpected"].format(
+                lines="; ".join(unexpected)
+            ),
+        )
     return ComplianceResult(
-        check_name=check_name, passed=False, severity=sev,
-        detail=patterns["fail_detail_unexpected"].format(lines="; ".join(all_lines)),
+        check_name=check_name,
+        passed=False,
+        severity=sev,
+        detail=patterns["fail_detail_missing"],
     )
 
 
@@ -160,7 +190,7 @@ def _check_no_open_ports(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "inactive_ports"
 ) -> ComplianceResult:
     allowed = set(str(v) for v in config.get("allowed_vlans", []))
-    patterns = _get_patterns("no_open_ports", config)
+    patterns = _get_patterns("no_open_ports", config, snapshot.device_type)
     match = patterns["match"]
     iface_prefix = patterns["iface_prefix"]
 
@@ -198,7 +228,7 @@ def _check_ntp_approved(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "ntp_config"
 ) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    patterns = _get_patterns("ntp_approved", config)
+    patterns = _get_patterns("ntp_approved", config, snapshot.device_type)
     match = patterns["match"]
     sev = config["severity"]
 
@@ -213,12 +243,15 @@ def _check_ntp_approved(
         stripped = line.strip()
         parts = stripped.split()
         if len(parts) < 3:
+            # Incomplete "ntp server" line is a configuration defect, not a pass
+            violations.append(f"<incomplete: {stripped}>")
             continue
         # Handle IOS-XE VRF syntax: "ntp server vrf <name> <ip>"
         if parts[2].lower() == "vrf":
             if len(parts) >= 5:
                 server = parts[4]
             else:
+                violations.append(f"<incomplete vrf: {stripped}>")
                 continue
         else:
             server = parts[2]
@@ -247,7 +280,7 @@ def _check_syslog_approved(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "syslog_config"
 ) -> ComplianceResult:
     approved = set(str(s) for s in config.get("approved_servers", []))
-    patterns = _get_patterns("syslog_approved", config)
+    patterns = _get_patterns("syslog_approved", config, snapshot.device_type)
     match = patterns["match"]
     sev = config["severity"]
 
@@ -261,10 +294,20 @@ def _check_syslog_approved(
         found_any = True
         stripped = line.strip()
         parts = stripped.split()
-        if len(parts) >= 3:
+        if len(parts) < 3:
+            violations.append(f"<incomplete: {stripped}>")
+            continue
+        # Handle VRF: "logging host vrf <name> <ip>"
+        if parts[2].lower() == "vrf":
+            if len(parts) >= 5:
+                server = parts[4]
+            else:
+                violations.append(f"<incomplete vrf: {stripped}>")
+                continue
+        else:
             server = parts[2]
-            if server not in approved:
-                violations.append(server)
+        if server not in approved:
+            violations.append(server)
 
     if not found_any:
         logger.warning("%s: no syslog servers configured", snapshot.device_name)
@@ -288,20 +331,35 @@ def _check_snmp_v3_only(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "snmp_v3_only"
 ) -> ComplianceResult:
     """Check that no SNMPv1/v2c community strings are configured."""
-    patterns = _get_patterns("snmp_v3_only", config)
+    patterns = _get_patterns("snmp_v3_only", config, snapshot.device_type)
     match = patterns["match"]
     sev = config["severity"]
 
-    # Use generator — only materialize if violations found
-    community_lines = [line.strip() for line in snapshot.config.lines if match in line.lower()]
+    # Ignore "no snmp-server community …" negation lines; never log raw communities
+    community_lines = [
+        line.strip()
+        for line in snapshot.config.lines
+        if match in line.lower() and not _is_negated(line)
+    ]
     if community_lines:
+        # Redact community values in detail — reports/history must not store secrets
+        redacted = []
+        for line in community_lines:
+            parts = line.split()
+            # snmp-server community <name> …
+            if len(parts) >= 3:
+                parts[2] = "***"
+            redacted.append(" ".join(parts))
         logger.info(
-            "%s: SNMPv1/v2c community strings found: %s",
-            snapshot.device_name, community_lines,
+            "%s: SNMPv1/v2c community strings found (%d)",
+            snapshot.device_name,
+            len(community_lines),
         )
         return ComplianceResult(
-            check_name=check_name, passed=False, severity=sev,
-            detail=patterns["fail_detail"].format(lines="; ".join(community_lines)),
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=patterns["fail_detail"].format(lines="; ".join(redacted)),
         )
     return ComplianceResult(
         check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
@@ -320,7 +378,7 @@ def _check_unused_iface_shutdown(
     All other interfaces must have 'shutdown' configured.
     """
     allowed_vlans = set(str(v) for v in config.get("allowed_vlans", []))
-    patterns = _get_patterns("unused_iface_shutdown", config)
+    patterns = _get_patterns("unused_iface_shutdown", config, snapshot.device_type)
     iface_prefix = patterns["iface_prefix"]
 
     # Build set of active interface names from parsed interfaces (those with IP)
@@ -383,7 +441,7 @@ def _check_vty_timeout(
 ) -> ComplianceResult:
     """Check that all VTY line blocks have exec-timeout within the allowed limit."""
     max_minutes = int(config.get("max_timeout_minutes", 10))
-    patterns = _get_patterns("vty_timeout", config)
+    patterns = _get_patterns("vty_timeout", config, snapshot.device_type)
     line_prefix = patterns["line_prefix"]
     match = patterns["match"]
 
@@ -408,6 +466,22 @@ def _check_vty_timeout(
             has_timeout = False
             timeout_minutes = 0
             vty_block = stripped
+        elif in_vty and (
+            sl.startswith("line ")
+            or sl.startswith("interface ")
+            or sl.startswith("router ")
+            or sl.startswith("ip ")
+            or sl.startswith("!")
+        ):
+            # End of VTY block — do not absorb console/aux/global exec-timeout
+            if not has_timeout:
+                missing.append(vty_block)
+            elif timeout_minutes > max_minutes:
+                violations.append(f"{vty_block} (timeout={timeout_minutes}min)")
+            in_vty = False
+            has_timeout = False
+            timeout_minutes = 0
+            vty_block = ""
         elif in_vty and match in sl:
             has_timeout = True
             m = _RE_EXEC_TIMEOUT.search(sl)
@@ -446,13 +520,16 @@ def _check_aaa_auth(
 ) -> ComplianceResult:
     """Check that aaa new-model and aaa authentication login default are configured."""
     lines = snapshot.config.lines
-    patterns = _get_patterns("aaa_auth", config)
+    patterns = _get_patterns("aaa_auth", config, snapshot.device_type)
     sev = config["severity"]
 
     has_new_model = False
     has_auth_login = False
     for line in lines:
         sl = line.strip().lower()
+        if _is_negated(sl):
+            # "no aaa new-model" is not compliance
+            continue
         if patterns["match_new_model"] in sl:
             has_new_model = True
         if patterns["match_auth_login"] in sl:
@@ -484,11 +561,14 @@ def _check_password_encryption(
 ) -> ComplianceResult:
     """Check that service password-encryption is configured."""
     lines = snapshot.config.lines
-    patterns = _get_patterns("password_encryption", config)
+    patterns = _get_patterns("password_encryption", config, snapshot.device_type)
     sev = config["severity"]
 
     for line in lines:
-        if patterns["match"] in line.lower():
+        sl = line.lower().strip()
+        if _is_negated(sl):
+            continue
+        if patterns["match"] in sl:
             return ComplianceResult(
                 check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
             )
@@ -501,17 +581,19 @@ def _check_cdp_disabled(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "cdp_disabled"
 ) -> ComplianceResult:
     """Check that CDP is disabled globally (no cdp run) or per-interface (no cdp enable)."""
-    patterns = _get_patterns("cdp_disabled", config)
+    patterns = _get_patterns("cdp_disabled", config, snapshot.device_type)
     sev = config["severity"]
 
     # Single pass: check for global disable AND track per-interface disables
     iface_cdp_disabled: set[str] = set()
     current_iface: str | None = None
+    has_global_disable = False
 
     for line in snapshot.config.lines:
         stripped = line.strip()
         sl = stripped.lower()
         if "no cdp run" in sl:
+            has_global_disable = True
             return ComplianceResult(
                 check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
             )
@@ -523,7 +605,7 @@ def _check_cdp_disabled(
     # Build set of all interfaces from parsed interfaces
     all_ifaces: set[str] = set()
     for iface in snapshot.interfaces.interfaces:
-        name = iface.get("interface", "")
+        name = iface.get("interface", "") or iface.get("port", "")
         if name:
             all_ifaces.add(name.lower())
 
@@ -536,8 +618,22 @@ def _check_cdp_disabled(
                 check_name=check_name, passed=False, severity=sev,
                 detail=patterns["fail_detail"].format(violations="; ".join(violations)),
             )
+        return ComplianceResult(
+            check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
+        )
 
-    # No interface data available and no global disable — pass (can't determine)
+    # No interface data and no global disable — fail closed (cannot prove CDP off)
+    if not has_global_disable:
+        return ComplianceResult(
+            check_name=check_name,
+            passed=False,
+            severity=sev,
+            detail=(
+                "Cannot verify CDP is disabled: no interface data collected "
+                "and 'no cdp run' not found"
+            ),
+        )
+
     return ComplianceResult(
         check_name=check_name, passed=True, severity=sev, detail=patterns["ok_detail"]
     )
@@ -547,7 +643,7 @@ def _check_login_banner(
     snapshot: DeviceSnapshot, config: dict[str, Any], check_name: str = "login_banner"
 ) -> ComplianceResult:
     """Check that a login banner is configured, optionally matching a required pattern."""
-    patterns = _get_patterns("login_banner", config)
+    patterns = _get_patterns("login_banner", config, snapshot.device_type)
     required_pattern = config.get("required_pattern")
     sev = config["severity"]
 

@@ -1,29 +1,27 @@
 """Pydantic data models for audnet."""
 
 import ipaddress
+from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 def _validate_host(value: str) -> str:
-    """Validate that host is a valid IP address or resolvable hostname."""
+    """Validate that host is a valid IP address or hostname."""
     if not value or not value.strip():
         raise ValueError("host must not be empty")
-    # Check if it's a valid IP address
     try:
         ipaddress.ip_address(value)
         return value
     except ValueError:
         pass
-    # Allow hostnames: must have at least one dot, no spaces, no special chars
     if " " in value or "\t" in value:
         raise ValueError(f"invalid host: {value!r}")
-    if "." not in value and value != "localhost":
-        raise ValueError(f"invalid host: {value!r} — must be a valid IP, FQDN, or 'localhost'")
-    # Reject characters that are invalid in hostnames
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
     if not all(c in allowed for c in value):
         raise ValueError(f"invalid host: {value!r} — contains invalid characters")
+    if value[0] == "-" or value[-1] == "-":
+        raise ValueError(f"invalid host: {value!r} — hostname cannot start or end with '-'")
     return value
 
 
@@ -33,6 +31,9 @@ class Device(BaseModel):
     device_type: str = "cisco_ios"
     username: str = "admin"
     password: SecretStr = SecretStr("")
+    secret: SecretStr = SecretStr("")
+    passwd: SecretStr = SecretStr("")
+    token: SecretStr = SecretStr("")
     port: int = Field(default=22, ge=1, le=65535)
     timeout: int = 30
     use_keys: bool = False
@@ -40,9 +41,29 @@ class Device(BaseModel):
 
     _validate_host_field = field_validator("host", mode="before")(_validate_host)
 
+    @field_validator("key_file", mode="before")
+    @classmethod
+    def _expand_key_file(cls, value: str | None) -> str | None:
+        if value is None or not value:
+            return value
+        if value.startswith("~"):
+            return str(Path(value).expanduser())
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_passwd(cls, data: object) -> object:
+        if isinstance(data, dict) and not data.get("password") and data.get("passwd"):
+            data["password"] = data["passwd"]
+        return data
+
     def get_password(self) -> str:
         """Return the plaintext password for use in SSH connections."""
         return self.password.get_secret_value()
+
+    def get_secret(self) -> str:
+        """Return the enable/secret password for privileged mode."""
+        return self.secret.get_secret_value()
 
 
 class ParsedInterfaces(BaseModel):
@@ -65,6 +86,7 @@ class ParsedConfig(BaseModel):
 
 class DeviceSnapshot(BaseModel):
     device_name: str
+    device_type: str = "cisco_ios"
     interfaces: ParsedInterfaces
     version: ParsedVersion
     config: ParsedConfig
@@ -93,12 +115,16 @@ class AuditReport(BaseModel):
 
 
 class CheckConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     description: str
     severity: str
     rule: str
     allowed_vlans: list[int] | None = None
     approved_servers: list[str] | None = None
     vendor_patterns: dict[str, dict[str, str]] | None = None
+    max_timeout_minutes: int | None = None
+    required_pattern: str | None = None
 
 
 class SecurityBaseline(BaseModel):

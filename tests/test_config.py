@@ -217,8 +217,12 @@ devices:
     password: ${DEVICE_PASSWORD}
     secret: mySuperSecretEnablePass
 """)
-        with pytest.raises(ConfigError, match="rtr01 \\(secret\\)"):
-            load_inventory(str(inv), strict=True)
+        os.environ["DEVICE_PASSWORD"] = "resolved"
+        try:
+            with pytest.raises(ConfigError, match="rtr01 \\(secret\\)"):
+                load_inventory(str(inv), strict=True)
+        finally:
+            del os.environ["DEVICE_PASSWORD"]
 
     def test_strict_raises_on_plaintext_passwd(self, tmp_path):
         inv = tmp_path / "devices.yaml"
@@ -230,8 +234,12 @@ devices:
     password: ${DEVICE_PASSWORD}
     passwd: some_plaintext_passwd
 """)
-        with pytest.raises(ConfigError, match="rtr01 \\(passwd\\)"):
-            load_inventory(str(inv), strict=True)
+        os.environ["DEVICE_PASSWORD"] = "resolved"
+        try:
+            with pytest.raises(ConfigError, match="rtr01 \\(passwd\\)"):
+                load_inventory(str(inv), strict=True)
+        finally:
+            del os.environ["DEVICE_PASSWORD"]
 
     def test_non_strict_warns_on_plaintext_secret(self, tmp_path, caplog):
         inv = tmp_path / "devices.yaml"
@@ -243,8 +251,43 @@ devices:
     password: ${DEVICE_PASSWORD}
     secret: mySuperSecretEnablePass
 """)
-        with caplog.at_level("WARNING"):
-            _, devices = load_inventory(str(inv), strict=False)
-        assert len(devices) == 1
-        assert "Plaintext secrets" in caplog.text
-        assert "rtr01 (secret)" in caplog.text
+        os.environ["DEVICE_PASSWORD"] = "resolved"
+        try:
+            with caplog.at_level("WARNING"):
+                _, devices = load_inventory(str(inv), strict=False)
+            assert len(devices) == 1
+            assert "Plaintext secrets" in caplog.text
+            assert "rtr01 (secret)" in caplog.text
+        finally:
+            del os.environ["DEVICE_PASSWORD"]
+
+    def test_missing_env_var_raises_config_error(self, tmp_path):
+        inv = tmp_path / "devices.yaml"
+        inv.write_text("""
+devices:
+  - name: rtr01
+    host: 10.0.0.1
+    username: admin
+    password: "${MISSING_VAR}"
+""")
+        with pytest.raises(ConfigError, match="MISSING_VAR"):
+            load_inventory(str(inv))
+
+    def test_baseline_preserves_rule_specific_fields(self, tmp_path):
+        bl = tmp_path / "baseline.yaml"
+        bl.write_text("""
+checks:
+  vty_timeout:
+    description: "VTY timeout"
+    severity: medium
+    rule: vty_timeout
+    max_timeout_minutes: 5
+  login_banner:
+    description: "Banner"
+    severity: low
+    rule: login_banner
+    required_pattern: "authorized users only"
+""")
+        baseline = load_baseline(str(bl))
+        assert baseline["checks"]["vty_timeout"]["max_timeout_minutes"] == 5
+        assert baseline["checks"]["login_banner"]["required_pattern"] == "authorized users only"

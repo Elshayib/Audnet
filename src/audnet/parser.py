@@ -37,8 +37,57 @@ def _apply_template(template_name: str, raw: str) -> list[dict[str, str]]:
         raise ParseError(f"Template error in {template_name}: {exc}") from exc
 
 
+# Map vendor-specific TextFSM field names onto the canonical schema used by
+# ParsedVersion / compliance (interface, ip_address, version, …).
+_VERSION_ALIASES = ("os", "image", "junos_version", "software_version", "sw_version")
+_IFACE_NAME_ALIASES = ("port", "ifname", "name", "intf")
+_IP_ALIASES = ("local", "address", "ip", "ipaddr")
+_STATUS_ALIASES = ("admin_status", "oper_status", "link", "link_status", "proto")
+
+
 def _normalize_row(row: dict[str, str]) -> dict[str, str]:
     return {k.lower().replace(" ", "_"): v.strip() for k, v in row.items()}
+
+
+def _canonicalize_interface(row: dict[str, str]) -> dict[str, str]:
+    """Normalize interface record keys across vendors."""
+    out = dict(row)
+    if not out.get("interface"):
+        for alias in _IFACE_NAME_ALIASES:
+            if out.get(alias):
+                out["interface"] = out[alias]
+                break
+    if not out.get("ip_address"):
+        for alias in _IP_ALIASES:
+            if out.get(alias):
+                out["ip_address"] = out[alias]
+                break
+    # Junos: admin_status / link_status → status
+    if not out.get("status"):
+        if out.get("link_status"):
+            out["status"] = out["link_status"]
+        elif out.get("admin_status"):
+            out["status"] = out["admin_status"]
+    # PAN speed/duplex/state like "1000/full/up" → extract oper state
+    speed = out.get("speed_duplex", "")
+    if speed and "/" in speed and not out.get("link_status"):
+        parts = speed.split("/")
+        if parts:
+            out["link_status"] = parts[-1]
+            if not out.get("status"):
+                out["status"] = parts[-1]
+    return out
+
+
+def _canonicalize_version(row: dict[str, str]) -> dict[str, str]:
+    """Ensure software version lands in the ``version`` field for ParsedVersion."""
+    out = dict(row)
+    if not out.get("version"):
+        for alias in _VERSION_ALIASES:
+            if out.get(alias):
+                out["version"] = out[alias]
+                break
+    return out
 
 
 def parse_interfaces(raw: str, device_type: str = "cisco_ios") -> list[dict[str, str]]:
@@ -46,7 +95,14 @@ def parse_interfaces(raw: str, device_type: str = "cisco_ios") -> list[dict[str,
         return []
     template_name = get_template_name(device_type, slot=Slot.INTERFACES) + ".textfsm"
     records = _apply_template(template_name, raw)
-    return [_normalize_row(r) for r in records]
+    result = [_canonicalize_interface(_normalize_row(r)) for r in records]
+    if not result:
+        logger.warning(
+            "Interface parse produced 0 records for device_type=%s (raw length=%d)",
+            device_type,
+            len(raw),
+        )
+    return result
 
 
 def parse_version(raw: str, device_type: str = "cisco_ios") -> dict[str, str]:
@@ -55,7 +111,12 @@ def parse_version(raw: str, device_type: str = "cisco_ios") -> dict[str, str]:
     template_name = get_template_name(device_type, slot=Slot.VERSION) + ".textfsm"
     rows = _apply_template(template_name, raw)
     if rows:
-        return _normalize_row(rows[0])
+        return _canonicalize_version(_normalize_row(rows[0]))
+    logger.warning(
+        "Version parse produced 0 records for device_type=%s (raw length=%d)",
+        device_type,
+        len(raw),
+    )
     return {}
 
 

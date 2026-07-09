@@ -255,7 +255,12 @@ class TestApplyConfig:
     def test_force_apply_even_if_unchanged(self, device):
         """Force flag should apply even if config is already present."""
         mock_conn = MagicMock()
-        mock_conn.send_command.return_value = "hostname rtr01\nntp server 10.0.0.1\n"
+        mock_conn.send_command.side_effect = [
+            "hostname rtr01\nntp server 10.0.0.1\n",
+            "hostname rtr01\nntp server 10.0.0.1\n",
+        ]
+        mock_conn.send_command_timing.return_value = "Copy complete"
+        mock_conn.send_config_set.return_value = "ok"
 
         with (
             patch("audnet.remediate._connect", return_value=mock_conn),
@@ -300,11 +305,12 @@ class TestApplyConfig:
     def test_successful_apply(self, device, config_snippet):
         """Successful apply should return SUCCESS."""
         mock_conn = MagicMock()
-        # First call: show running-config (pre), second: config set, third: show running-config (post)
+        # First call: show running-config (pre), second: show running-config (post)
         mock_conn.send_command.side_effect = [
             "hostname rtr01\ninterface Gig0/0\n",  # pre
             "hostname rtr01\ninterface Gig0/0\nntp server 10.0.0.1\nntp server 10.0.0.2\n",  # post
         ]
+        mock_conn.send_command_timing.return_value = "Copy complete"  # checkpoint + cleanup
         mock_conn.send_config_set.return_value = "Config applied"
 
         with (
@@ -326,17 +332,23 @@ class TestApplyConfig:
             "hostname rtr01\n",  # pre
             "hostname rtr01\n",  # post — lines missing
         ]
+        mock_conn.send_command_timing.return_value = "Copy complete"  # pre-apply checkpoint
         mock_conn.send_config_set.return_value = "Config applied"
 
         with (
             patch("audnet.remediate._connect", return_value=mock_conn),
             patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
-            patch("audnet.remediate._rollback_config", return_value="Rolled back"),
+            patch("audnet.remediate._rollback_config", return_value="Rolled back") as mock_rb,
         ):
             result = apply_config(device, config_snippet, dry_run=False, auto_approve=True)
 
         assert result.status == RemediationStatus.ROLLED_BACK
         assert result.rolled_back is True
+        # Rollback must receive the checkpoint filename
+        assert mock_rb.call_args.kwargs.get("checkpoint_file") or (
+            len(mock_rb.call_args[0]) >= 1
+        )
+        assert mock_rb.call_args.kwargs.get("checkpoint_file", "").startswith("_audnet_cp_")
 
     def test_rollback_failure(self, device, config_snippet):
         """If both apply and rollback fail, should return FAILED with rollback_error."""
@@ -348,6 +360,7 @@ class TestApplyConfig:
             "hostname rtr01\n",  # pre
             "hostname rtr01\n",  # post — verification fails (lines missing)
         ]
+        mock_conn.send_command_timing.return_value = "Copy complete"
         mock_conn.send_config_set.return_value = "Config applied"
 
         with (
@@ -362,6 +375,29 @@ class TestApplyConfig:
 
         assert result.status == RemediationStatus.FAILED
         assert result.rollback_error is not None
+
+    def test_force_apply_creates_checkpoint(self, device):
+        """Force apply should still checkpoint before config set."""
+        mock_conn = MagicMock()
+        mock_conn.send_command.side_effect = [
+            "hostname rtr01\nntp server 10.0.0.1\n",  # pre
+            "hostname rtr01\nntp server 10.0.0.1\n",  # post
+        ]
+        mock_conn.send_command_timing.return_value = "Copy complete"
+        mock_conn.send_config_set.return_value = "ok"
+
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+        ):
+            result = apply_config(
+                device,
+                ["ntp server 10.0.0.1"],
+                dry_run=False,
+                force=True,
+                auto_approve=True,
+            )
+        assert result.status == RemediationStatus.SUCCESS
 
 
 # ---------------------------------------------------------------------------
@@ -459,75 +495,131 @@ class TestRemediateDevices:
 
 
 class TestRollbackConfig:
-    """Tests for the _rollback_config function."""
+    """Tests for the _rollback_config function.
 
-    def test_configure_replace_success(self):
-        """Should try configure replace first with timing-based output."""
+    Checkpoint is created *before* apply; rollback uses that flash file
+    (never re-copies running-config after a failed apply).
+    """
+
+    def test_configure_replace_from_checkpoint(self):
+        """Should configure-replace from the pre-apply checkpoint file."""
         mock_conn = MagicMock()
         mock_conn.send_command_timing.side_effect = [
-            "Copy successful",  # copy running-config flash:...
-            "Rollback successful",  # configure replace flash:... force
+            "Rollback successful",  # configure replace flash:_audnet_cp_... force
             "Delete successful",  # delete flash:...
         ]
 
         from audnet.remediate import _rollback_config
 
-        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        result = _rollback_config(
+            mock_conn, "hostname rtr01\n", checkpoint_file="_audnet_cp_1"
+        )
         assert "Rollback successful" in result
+        # Must NOT copy running-config during rollback (that would snapshot bad state)
+        calls = [str(c) for c in mock_conn.send_command_timing.call_args_list]
+        assert not any("copy running-config" in c for c in calls)
+        assert any("configure replace flash:_audnet_cp_1" in c for c in calls)
 
     def test_configure_replace_with_confirmation(self):
         """Should handle [y/n] confirmation prompt from configure replace."""
         mock_conn = MagicMock()
         mock_conn.send_command_timing.side_effect = [
-            "Copy successful",  # copy running-config flash:...
-            "This will apply the following configuration:\nAre you sure? [y/n]",  # configure replace
+            "This will apply the following configuration:\nAre you sure? [y/n]",
             "Confirmed",  # send y
-            "Delete successful",  # delete flash:...
+            "Delete successful",
         ]
 
         from audnet.remediate import _rollback_config
 
-        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        result = _rollback_config(
+            mock_conn, "hostname rtr01\n", checkpoint_file="_audnet_cp_1"
+        )
         assert "Confirmed" in result
 
     def test_configure_replace_with_no_prompt(self):
         """Should handle '? [no]:' confirmation prompt from configure replace."""
         mock_conn = MagicMock()
         mock_conn.send_command_timing.side_effect = [
-            "Copy successful",  # copy running-config flash:...
-            "This will apply the following configuration:\n? [no]:",  # configure replace
-            "Confirmed",  # send y
-            "Delete successful",  # delete flash:...
+            "This will apply the following configuration:\n? [no]:",
+            "Confirmed",
+            "Delete successful",
         ]
 
         from audnet.remediate import _rollback_config
 
-        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        result = _rollback_config(
+            mock_conn, "hostname rtr01\n", checkpoint_file="_audnet_cp_1"
+        )
         assert "Confirmed" in result
 
-    def test_line_by_line_rollback_after_configure_replace_failure(self):
-        """Should fall through to line-by-line rollback when configure replace fails."""
+    def test_line_by_line_when_no_checkpoint(self):
+        """Without a checkpoint, fall back to in-memory previous_config lines."""
         mock_conn = MagicMock()
-        # configure replace fails
-        mock_conn.send_command.side_effect = Exception("copy failed")
-        mock_conn.send_command_timing.side_effect = Exception("timing failed")
-        # No Netmiko rollback strategy anymore — goes straight to line-by-line
         mock_conn.send_config_set.return_value = "line-by-line ok"
 
         from audnet.remediate import _rollback_config
 
-        result = _rollback_config(mock_conn, "hostname rtr01\n")
+        result = _rollback_config(mock_conn, "hostname rtr01\n", checkpoint_file=None)
+        assert "line-by-line ok" in result
+        mock_conn.send_config_set.assert_called_once()
+
+    def test_line_by_line_after_configure_replace_failure(self):
+        """Should fall through to line-by-line when configure replace fails."""
+        mock_conn = MagicMock()
+        mock_conn.send_command_timing.side_effect = Exception("timing failed")
+        mock_conn.send_config_set.return_value = "line-by-line ok"
+
+        from audnet.remediate import _rollback_config
+
+        result = _rollback_config(
+            mock_conn, "hostname rtr01\n", checkpoint_file="_audnet_cp_1"
+        )
         assert "line-by-line ok" in result
 
     def test_fallback_to_line_by_line(self):
         """If all strategies fail, should raise RemediationRollbackError."""
         mock_conn = MagicMock()
-        # All strategies fail
-        mock_conn.send_command.side_effect = Exception("copy failed")
         mock_conn.send_command_timing.side_effect = Exception("timing failed")
         mock_conn.send_config_set.side_effect = Exception("line-by-line failed")
 
         from audnet.remediate import _rollback_config
 
         with pytest.raises(RemediationRollbackError):
-            _rollback_config(mock_conn, "hostname rtr01\n")
+            _rollback_config(
+                mock_conn, "hostname rtr01\n", checkpoint_file="_audnet_cp_1"
+            )
+
+    def test_create_checkpoint_before_apply(self):
+        """Successful apply path must create a flash checkpoint before config set."""
+        mock_conn = MagicMock()
+        mock_conn.send_command.side_effect = [
+            "hostname rtr01\n",  # pre
+            "hostname rtr01\nntp server 10.0.0.1\nntp server 10.0.0.2\n",  # post
+        ]
+        mock_conn.send_command_timing.return_value = "Copy complete"
+        mock_conn.send_config_set.return_value = "Config applied"
+
+        from audnet.models import Device
+
+        device = Device(
+            name="rtr01",
+            host="10.0.0.1",
+            device_type="cisco_ios",
+            username="admin",
+            password="secret",
+        )
+        with (
+            patch("audnet.remediate._connect", return_value=mock_conn),
+            patch("audnet.remediate.ApprovalGate.request_approval", return_value=True),
+        ):
+            result = apply_config(
+                device,
+                ["ntp server 10.0.0.1", "ntp server 10.0.0.2"],
+                dry_run=False,
+                auto_approve=True,
+            )
+
+        assert result.status == RemediationStatus.SUCCESS
+        # First timing call should be copy running-config (checkpoint), not configure replace
+        first_timing = mock_conn.send_command_timing.call_args_list[0][0][0]
+        assert "copy running-config flash:_audnet_cp_" in first_timing

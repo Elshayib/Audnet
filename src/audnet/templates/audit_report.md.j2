@@ -9,7 +9,7 @@
 | Check | Result | Severity | Detail |
 |-------|--------|----------|--------|
 {% for check in report.checks -%}
-| {{ check.check_name }} | {% if check.passed %}PASS{% else %}FAIL{% endif %} | {{ check.severity }} | {{ check.detail }}
+| {{ check.check_name | replace('|', '\\|') }} | {% if check.passed %}PASS{% else %}FAIL{% endif %} | {{ check.severity | replace('|', '\\|') }} | {{ check.detail | replace('|', '\\|') | replace('\n', ' ') }} |
 {% endfor %}
 
 **Passed:** {{ report.pass_count }} / {{ report.checks | length }}

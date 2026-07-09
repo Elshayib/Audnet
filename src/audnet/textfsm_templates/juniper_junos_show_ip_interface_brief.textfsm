@@ -1,7 +1,14 @@
 Value Required INTERFACE (\S+)
-Value LINK_STATUS (\w+)
+Value ADMIN_STATUS (\S+)
+Value LINK_STATUS (\S+)
+Value PROTO (\S+)
 Value IP_ADDRESS (\S+)
-Value STATUS (\S+)
 
 Start
- ^\s*${INTERFACE}\s+${LINK_STATUS}\s+${IP_ADDRESS}\s+${STATUS} -> Record
+ # show interfaces terse: Interface Admin Link Proto Local Remote
+ # ge-0/0/0  up  up  inet  10.0.0.1/24
+ ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${LINK_STATUS}\s+${PROTO}\s+${IP_ADDRESS}(?:\s+\S+)*\s*$$ -> Record
+ # Interface without address (or with only admin/link)
+ ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${LINK_STATUS}\s*$$ -> Record
+ # Continuation lines for additional families
+ ^\s+${PROTO}\s+${IP_ADDRESS}(?:\s+\S+)*\s*$$ -> Record

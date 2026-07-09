@@ -15,20 +15,37 @@ from audnet import __version__
 from audnet.collector import collect_all
 from audnet.compliance import list_checks, run_checks
 from audnet.config import load_inventory, load_baseline
-from audnet.models import AuditReport
+from audnet.models import AuditReport, ComplianceResult
 from audnet.reporter import render_markdown, render_html
-from audnet.exceptions import GitHistoryError
+from audnet.exceptions import ConfigError, GitHistoryError, NetAuditError
 from audnet.history import save_run, diff_runs, get_runs
 from audnet.remediate import RemediationStatus
 
 # Async collector is imported lazily to avoid requiring asyncssh unless --async is used.
 _collect_all_async = None
 
-app = typer.Typer(help="Network Security & Compliance State Auditor")
+app = typer.Typer(
+    help="Network Security & Compliance State Auditor",
+    no_args_is_help=True,
+)
 console = Console()
 logger = structlog.get_logger("audnet")
 
-_SECRET_KEYS = frozenset({"password", "key_file", "secret", "passwd", "token"})
+_SECRET_KEYS = frozenset(
+    {
+        "password",
+        "key_file",
+        "secret",
+        "passwd",
+        "token",
+        "webhook_secret",
+        "smtp_password",
+        "community",
+        "snmp_community",
+    }
+)
+
+_VALID_BACKENDS = frozenset({"auto", "netmiko", "asyncssh", "scrapli"})
 
 
 def _redact_secrets(
@@ -98,12 +115,12 @@ def audit(
     no_fail: bool = typer.Option(
         False,
         "--no-fail",
-        help="Always exit 0 even on compliance failures (informational mode)",
+        help="Always exit 0 even on compliance failures or drift regressions (informational mode)",
     ),
     async_mode: bool = typer.Option(
         False,
         "--async",
-        help="Use asyncio-based SSH collector (recommended for >20 devices)",
+        help="Use asyncio-based SSH collector (asyncssh). Wins over scrapli auto-detect.",
     ),
     backend: str = typer.Option(
         "auto",
@@ -155,18 +172,34 @@ def audit(
     """Run a full compliance audit against all (or filtered) devices.
 
     Supports device/check filters, JSON output, dry-run mode, and strict secret handling for CI/automation.
+
+    Exit codes:
+      0 — all checks passed (or --no-fail)
+      1 — compliance / collection failure
+      2 — new drift regressions (suppressed by --no-fail)
     """
     _setup_logging(verbose)
     console.print(f"[bold blue]audnet v{__version__} — Starting audit...[/bold blue]")
 
-    _, devices = load_inventory(inventory, strict=strict)
-    baseline_data = load_baseline(baseline)
+    if backend not in _VALID_BACKENDS:
+        console.print(
+            f"[red]Invalid --backend {backend!r}. "
+            f"Choose from: {', '.join(sorted(_VALID_BACKENDS))}[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        _, devices = load_inventory(inventory, strict=strict)
+        baseline_data = load_baseline(baseline)
+    except (ConfigError, NetAuditError, OSError) as exc:
+        console.print(f"[red]Configuration error: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
 
     if device:
         devices = [d for d in devices if d.name == device]
         if not devices:
             console.print(f"[red]Device '{device}' not found in inventory[/red]")
-            return
+            raise typer.Exit(code=1)
 
     check_names = set(baseline_data.get("checks", {}).keys())
     console.print(f"Loaded {len(devices)} devices, {len(check_names)} checks")
@@ -210,42 +243,47 @@ def audit(
     # Collect with status
     console.print("[yellow]Collecting device data...[/yellow]")
 
-    # Determine which backend to use
+    # Determine which backend to use.
+    # Precedence: explicit --backend > --async (asyncssh) > auto (prefer netmiko;
+    # scrapli only when --backend scrapli — avoids dev/prod behavior drift).
     use_scrapli = False
     use_asyncssh = False
     if backend == "scrapli":
         use_scrapli = True
     elif backend == "asyncssh":
         use_asyncssh = True
+    elif backend == "netmiko":
+        use_asyncssh = False
     elif backend == "auto":
-        # Auto-prefer scrapli if available, then asyncssh if --async, else netmiko
-        try:
-            import scrapli  # noqa: F401
+        if async_mode:
+            use_asyncssh = True
+        else:
+            # Default production path is Netmiko for widest multi-vendor support
+            use_asyncssh = False
 
-            use_scrapli = True
-            console.print("[dim]Using Scrapli backend (auto-detected)[/dim]")
-        except ImportError:
-            use_asyncssh = async_mode
-    else:  # netmiko
-        use_asyncssh = async_mode
+    try:
+        if use_scrapli:
+            from audnet.scrapli_collector import collect_all_scrapli
 
-    if use_scrapli:
-        import asyncio
+            console.print("[dim]Using Scrapli backend[/dim]")
+            snapshots = asyncio.run(
+                collect_all_scrapli(devices, max_workers=workers, timeout=timeout)
+            )
+        elif use_asyncssh:
+            global _collect_all_async
+            if _collect_all_async is None:
+                from audnet.collector_async import collect_all_async
 
-        from audnet.scrapli_collector import collect_all_scrapli
-
-        snapshots = asyncio.run(collect_all_scrapli(devices, max_workers=workers, timeout=timeout))
-    elif use_asyncssh:
-        import asyncio
-
-        global _collect_all_async
-        if _collect_all_async is None:
-            from audnet.collector_async import collect_all_async
-
-            _collect_all_async = collect_all_async
-        snapshots = asyncio.run(_collect_all_async(devices, max_workers=workers, timeout=timeout))
-    else:
-        snapshots = collect_all(devices, max_workers=workers, timeout=timeout)
+                _collect_all_async = collect_all_async
+            console.print("[dim]Using asyncssh backend[/dim]")
+            snapshots = asyncio.run(
+                _collect_all_async(devices, max_workers=workers, timeout=timeout)
+            )
+        else:
+            snapshots = collect_all(devices, max_workers=workers, timeout=timeout)
+    except ImportError as exc:
+        console.print(f"[red]Backend unavailable: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
 
     # Resolve check filter
     if check:
@@ -264,7 +302,21 @@ def audit(
     for snap in snapshots:
         if snap.collection_error:
             console.print(f"[red]ERROR {snap.device_name}: {snap.collection_error}[/red]")
-            reports.append(AuditReport(device_name=snap.device_name, overall_pass=False, checks=[]))
+            # Surface collection errors as an explicit check so MD/HTML reports
+            # are not empty 0/0 FAIL with no explanation.
+            error_check = ComplianceResult(
+                check_name="collection",
+                passed=False,
+                severity="critical",
+                detail=f"Collection failed: {snap.collection_error}",
+            )
+            reports.append(
+                AuditReport(
+                    device_name=snap.device_name,
+                    overall_pass=False,
+                    checks=[error_check],
+                )
+            )
             continue
 
         results = run_checks(snap, baseline_data)
@@ -286,20 +338,21 @@ def audit(
         table.add_row(r.device_name, status, str(r.pass_count), str(r.fail_count))
     console.print(table)
 
-    # Write reports
+    # Write reports (always UTF-8 for Windows + multi-locale device names)
     if format in ("md", "both"):
         md_path = Path(f"{output}.md")
-        md_path.write_text(render_markdown(reports))
+        md_path.write_text(render_markdown(reports), encoding="utf-8")
         console.print(f"[green]Markdown report: {md_path}[/green]")
 
     if format in ("html", "both"):
         html_path = Path(f"{output}.html")
-        html_path.write_text(render_html(reports))
+        html_path.write_text(render_html(reports), encoding="utf-8")
         console.print(f"[green]HTML report: {html_path}[/green]")
 
     if json_out:
         json_data = [r.model_dump(mode="json") for r in reports]
-        console.print_json(json.dumps(json_data))
+        # Machine-readable JSON on stdout without Rich styling noise
+        print(json.dumps(json_data, indent=2))
 
     # Drift detection (before saving current run, so we compare against prior state)
     has_new_regressions = False
@@ -356,7 +409,7 @@ def audit(
         except Exception as exc:
             logger.warning("Failed to save Git config history: %s", exc)
 
-    if has_new_regressions:
+    if has_new_regressions and not no_fail:
         raise typer.Exit(code=2)
 
     if not no_fail and reports and not all(r.overall_pass for r in reports):
@@ -382,13 +435,17 @@ def history(
 
     Shows past audit runs with optional filtering by device, time window, and status.
     """
-    runs = get_runs(
-        device_name=device,
-        history_dir=history_dir,
-        limit=last,
-        since=since,
-        status=status,
-    )
+    try:
+        runs = get_runs(
+            device_name=device,
+            history_dir=history_dir,
+            limit=last,
+            since=since,
+            status=status,
+        )
+    except ValueError as exc:
+        console.print(f"[red]Invalid --since value: {exc}[/red]")
+        raise typer.Exit(code=1)
 
     if not runs:
         console.print("[yellow]No history records found[/yellow]")
@@ -633,10 +690,10 @@ def listen(
     smtp_password: str | None = typer.Option(
         None,
         "--smtp-password",
-        help="SMTP password (prefer AUDNET_SMTP_PASSWORD env var to avoid shell history exposure)",
+        help="SMTP password (prefer AUDNET_SMTP_PASSWORD env var; never prompted by default)",
         envvar="AUDNET_SMTP_PASSWORD",
         hide_input=True,
-        prompt=True,
+        prompt=False,
     ),
     smtp_use_tls: bool = typer.Option(
         True, "--smtp-use-tls/--no-smtp-use-tls", help="Use TLS for SMTP"
@@ -647,6 +704,9 @@ def listen(
     syslog_port: int = typer.Option(514, "--syslog-port", help="Syslog UDP port"),
     snmp_community: str = typer.Option(
         "public", "--snmp-community", help="SNMP trap community string"
+    ),
+    snmp_trap_port: int = typer.Option(
+        162, "--snmp-trap-port", help="SNMP trap UDP port (0 to disable trap listener)"
     ),
     poll_interval: int = typer.Option(
         300, "--poll-interval", help="Polling interval in seconds (0 to disable)"
@@ -680,15 +740,25 @@ def listen(
         console.print(f"[red]Failed to load inventory: {exc}[/red]")
         raise typer.Exit(code=1)
 
-    inventory_map = {d.name: d.host for d in devices}
+    device_map = {d.name: d for d in devices}
+    baseline_data: dict[str, Any] | None = None
+    if baseline:
+        try:
+            baseline_data = load_baseline(baseline)
+            console.print(f"[dim]Loaded baseline: {baseline}[/dim]")
+        except Exception as exc:
+            console.print(f"[red]Failed to load baseline: {exc}[/red]")
+            raise typer.Exit(code=1)
+
     console.print(
         f"[bold blue]audnet v{__version__} \u2014 Starting real-time listener[/bold blue]"
     )
-    console.print(f"Tracking {len(inventory_map)} devices")
+    console.print(f"Tracking {len(device_map)} devices")
 
     alert_config = AlertConfig(
         syslog_bind_host=syslog_host,
         syslog_bind_port=syslog_port,
+        snmp_trap_bind_port=snmp_trap_port,
         snmp_community=snmp_community,
         poll_interval=poll_interval,
         webhook_url=webhook_url,
@@ -701,6 +771,7 @@ def listen(
         email_from=email_from,
         email_to=email_to,
         rate_limit_seconds=rate_limit,
+        dry_run=dry_run,
     )
 
     if not alert_config.webhook_url and not alert_config.smtp_host:
@@ -719,7 +790,9 @@ def listen(
 
     try:
         alert_manager = AlertManager(alert_config)
-        listener = RealtimeListener(alert_config, alert_manager, inventory_map)
+        listener = RealtimeListener(
+            alert_config, alert_manager, device_map, baseline=baseline_data
+        )
         asyncio.run(listener.start())
     except KeyboardInterrupt:
         console.print("\n[yellow]Listener stopped by user[/yellow]")

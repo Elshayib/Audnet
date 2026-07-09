@@ -20,6 +20,7 @@ from typing import Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
+from audnet.exceptions import ParseError
 from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from audnet.parser import parse_interfaces, parse_version, parse_config
 from audnet.vendor_registry import Slot, get_commands
@@ -106,16 +107,32 @@ def _get_scrapli_driver(device_type: str) -> type:
 
 def _build_conn_params(device: Device) -> dict[str, Any]:
     """Build connection parameters dict for Scrapli driver."""
+    import os
+
+    strict = os.environ.get("AUDNET_SSH_STRICT_KEY", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
     params: dict[str, Any] = {
         "host": device.host,
         "auth_username": device.username,
-        "auth_password": device.get_password(),
-        "auth_strict_key": False,
+        "auth_strict_key": strict,
         "transport": "asyncssh",
         "timeout_socket": device.timeout,
         "timeout_transport": device.timeout,
         "timeout_ops": device.timeout,
     }
+    password = device.get_password()
+    if password:
+        params["auth_password"] = password
+    secret = device.get_secret()
+    if secret:
+        params["auth_secondary"] = secret
+    if device.use_keys and device.key_file:
+        params["auth_private_key"] = device.key_file
+        params["auth_private_key_passphrase"] = password or None
     if device.port != 22:
         params["port"] = device.port
     return params
@@ -156,6 +173,7 @@ async def collect_device_scrapli(device: Device) -> DeviceSnapshot:
         parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(
                 interfaces=parse_interfaces(
                     raw_outputs[Slot.INTERFACES], device_type=device.device_type
@@ -174,10 +192,12 @@ async def collect_device_scrapli(device: Device) -> DeviceSnapshot:
         OSError,
         ValueError,
         ConnectionError,
+        ParseError,
     ) as exc:
         logger.error("Failed to collect from %s via Scrapli: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(),
             version=ParsedVersion(),
             config=ParsedConfig(),
@@ -210,6 +230,7 @@ async def collect_all_scrapli(
                     logger.error("Collection from %s timed out after %ss", device.name, timeout)
                     return DeviceSnapshot(
                         device_name=device.name,
+                        device_type=device.device_type,
                         interfaces=ParsedInterfaces(),
                         version=ParsedVersion(),
                         config=ParsedConfig(),
@@ -218,4 +239,32 @@ async def collect_all_scrapli(
             return await collect_device_scrapli(device)
 
     tasks = [asyncio.create_task(_bounded_collect(d)) for d in devices]
-    return list(await asyncio.gather(*tasks))
+    raw = await asyncio.gather(*tasks, return_exceptions=True)
+    results: list[DeviceSnapshot] = []
+    for device, item in zip(devices, raw):
+        if isinstance(item, DeviceSnapshot):
+            results.append(item)
+        elif isinstance(item, BaseException):
+            logger.error("Unexpected error collecting from %s via Scrapli: %s", device.name, item)
+            results.append(
+                DeviceSnapshot(
+                    device_name=device.name,
+                    device_type=device.device_type,
+                    interfaces=ParsedInterfaces(),
+                    version=ParsedVersion(),
+                    config=ParsedConfig(),
+                    collection_error=str(item),
+                )
+            )
+        else:  # pragma: no cover
+            results.append(
+                DeviceSnapshot(
+                    device_name=device.name,
+                    device_type=device.device_type,
+                    interfaces=ParsedInterfaces(),
+                    version=ParsedVersion(),
+                    config=ParsedConfig(),
+                    collection_error="Unknown collection result",
+                )
+            )
+    return results

@@ -1,28 +1,8 @@
-"""Async SSH collector prototype for network device data.
+"""Async SSH collector for network device data.
 
-This module provides an asyncio-based alternative to the ThreadPool + Netmiko
-collector. It uses asyncssh for SSH connections and is designed to scale to
-hundreds of devices with lower memory and thread overhead.
-
-Architecture:
-    - asyncio event loop manages all concurrent SSH sessions
-    - asyncssh handles SSH transport (no thread per connection)
-    - Same DeviceSnapshot output format as sync collector
-    - Same retry logic via tenacity (async-compatible)
-
-Trade-offs vs sync collector (collector.py):
-    + Single-threaded: no GIL contention, lower memory per connection
-    + Native concurrency: scales to 100s of devices without thread overhead
-    + No thread pool sizing: concurrency limited by semaphore, not OS threads
-    - Requires asyncssh dependency (not in current dependency tree)
-    - No Netmiko device-type abstraction: commands sent raw
-    - Prototype status: not yet integrated into CLI
-
-Migration path:
-    1. Install asyncssh: uv add asyncssh
-    2. Switch collector import in cli.py: from audnet.collector_async import collect_all
-    3. Add --workers flag maps to asyncio.Semaphore limit
-    4. Keep sync collector as fallback for environments without asyncssh
+Uses asyncssh for concurrent SSH collection with lower per-connection overhead
+than the ThreadPool + Netmiko sync collector. Integrated into the CLI via
+``--async`` or ``--backend asyncssh``.
 """
 
 import asyncio
@@ -38,6 +18,7 @@ from asyncssh import (
 )
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
+from audnet.exceptions import ParseError
 from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
 from audnet.parser import parse_interfaces, parse_version, parse_config
 from audnet.vendor_registry import Slot, get_commands
@@ -85,16 +66,34 @@ async def _do_ssh_collect(device: Device, known_hosts: str | None = None) -> dic
         "host": device.host,
         "port": device.port,
         "username": device.username,
-        "password": password,
         "connect_timeout": device.timeout or 30,
     }
+    if password:
+        connect_kwargs["password"] = password
+    if device.use_keys and device.key_file:
+        connect_kwargs["client_keys"] = [device.key_file]
+    elif device.use_keys:
+        connect_kwargs["client_keys"] = "default"
     if known_hosts is not None:
         connect_kwargs["known_hosts"] = known_hosts
     async with asyncssh.connect(**connect_kwargs) as conn:
         results: dict[Slot, str] = {}
         for slot, cmd in zip(slot_map, commands):
             result = await conn.run(cmd, timeout=device.timeout)
-            results[slot] = cast(str, result.stdout)
+            stdout = result.stdout
+            # Treat real non-zero exit / missing stdout as collection failure so
+            # we never silently build empty snapshots that look like compliance.
+            exit_status = getattr(result, "exit_status", None)
+            if isinstance(exit_status, int) and exit_status != 0:
+                stderr = (getattr(result, "stderr", None) or "")
+                if not isinstance(stderr, str):
+                    stderr = str(stderr)
+                raise OSError(
+                    f"Command {cmd!r} failed (exit={exit_status}): {stderr.strip()}"
+                )
+            if stdout is None:
+                raise OSError(f"Command {cmd!r} returned no stdout")
+            results[slot] = cast(str, stdout)
         return results
 
 
@@ -122,6 +121,7 @@ async def collect_device_async(
         parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(
                 interfaces=parse_interfaces(
                     raw_outputs[Slot.INTERFACES], device_type=device.device_type
@@ -141,10 +141,12 @@ async def collect_device_async(
         OSError,
         ValueError,
         ConnectionError,
+        ParseError,
     ) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return DeviceSnapshot(
             device_name=device.name,
+            device_type=device.device_type,
             interfaces=ParsedInterfaces(),
             version=ParsedVersion(),
             config=ParsedConfig(),
@@ -191,6 +193,7 @@ async def collect_all_async(
                     logger.error("Collection from %s timed out after %ss", device.name, timeout)
                     return DeviceSnapshot(
                         device_name=device.name,
+                        device_type=device.device_type,
                         interfaces=ParsedInterfaces(),
                         version=ParsedVersion(),
                         config=ParsedConfig(),
@@ -199,4 +202,33 @@ async def collect_all_async(
             return await collect_device_async(device, known_hosts=known_hosts)
 
     tasks = [asyncio.create_task(_bounded_collect(d)) for d in devices]
-    return list(await asyncio.gather(*tasks))
+    # Isolate per-device failures so one bad host cannot abort the batch
+    raw = await asyncio.gather(*tasks, return_exceptions=True)
+    results: list[DeviceSnapshot] = []
+    for device, item in zip(devices, raw):
+        if isinstance(item, DeviceSnapshot):
+            results.append(item)
+        elif isinstance(item, BaseException):
+            logger.error("Unexpected error collecting from %s: %s", device.name, item)
+            results.append(
+                DeviceSnapshot(
+                    device_name=device.name,
+                    device_type=device.device_type,
+                    interfaces=ParsedInterfaces(),
+                    version=ParsedVersion(),
+                    config=ParsedConfig(),
+                    collection_error=str(item),
+                )
+            )
+        else:  # pragma: no cover
+            results.append(
+                DeviceSnapshot(
+                    device_name=device.name,
+                    device_type=device.device_type,
+                    interfaces=ParsedInterfaces(),
+                    version=ParsedVersion(),
+                    config=ParsedConfig(),
+                    collection_error="Unknown collection result",
+                )
+            )
+    return results

@@ -1,0 +1,10 @@
+Value HOSTNAME (\S+)
+Value VERSION (\S+)
+Value UPTIME (.+)
+Value SERIAL (\S+)
+
+Start
+  ^.*Version\s+${VERSION}
+  ^.*up\s+${UPTIME}
+  ^.*Serial\s+Number:\s+${SERIAL}
+  ^hostname\s+${HOSTNAME} -> Record

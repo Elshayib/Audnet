@@ -380,10 +380,10 @@ audnet history-show --device core-router-01 --ref HEAD~3
 audnet history-diff --device core-router-01 --from HEAD~1 --to HEAD
 
 # Preview a rollback (dry-run by default)
-audnet rollback --device core-router-01 --ref HEAD~1
+audnet git-rollback --device core-router-01 --ref HEAD~1
 
 # Actually perform the rollback
-audnet rollback --device core-router-01 --ref HEAD~1 --no-dry-run
+audnet git-rollback --device core-router-01 --ref HEAD~1 --no-dry-run
 ```
 
 Use a custom Git repo path:

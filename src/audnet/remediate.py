@@ -146,7 +146,7 @@ class ApprovalGate:
 
         # Interactive CLI confirmation
         print(f"\n{'=' * 60}")
-        print(f"REMEDIATION APPVAL REQUIRED for {device_name}")
+        print(f"REMEDIATION APPROVAL REQUIRED for {device_name}")
         print(f"{'=' * 60}")
         print(str(diff))
         print(f"{'=' * 60}")
@@ -169,6 +169,14 @@ class ApprovalGate:
 # ---------------------------------------------------------------------------
 
 
+def _ssh_strict_enabled() -> bool:
+    """Return whether SSH host-key verification is enforced (default: on)."""
+    import os
+
+    val = os.environ.get("AUDNET_SSH_STRICT_KEY", "1").strip().lower()
+    return val not in ("0", "false", "no", "off")
+
+
 def _connect(device: Device) -> Any:  # pragma: no cover
     """Establish an SSH connection to a device using Netmiko."""
     params: dict[str, Any] = {
@@ -178,19 +186,31 @@ def _connect(device: Device) -> Any:  # pragma: no cover
         "password": device.get_password(),
         "port": device.port,
         "timeout": device.timeout,
+        "conn_timeout": device.timeout,
+        # Fail closed on unknown host keys unless AUDNET_SSH_STRICT_KEY=0
+        "system_host_keys": True,
+        "ssh_strict": _ssh_strict_enabled(),
     }
     if device.use_keys:
         params["use_keys"] = True
         if device.key_file:
             params["key_file"] = device.key_file
+    secret = device.get_secret()
+    if secret:
+        params["secret"] = secret
 
     try:
-        return ConnectHandler(**params)
+        conn = ConnectHandler(**params)
+        if secret:
+            try:
+                conn.enable()
+            except Exception as exc:  # pragma: no cover
+                logger.warning("Failed to enter enable mode on %s: %s", device.name, exc)
+        return conn
     except (NetmikoAuthenticationException, SSHException) as exc:
         raise CollectionError(f"Authentication failed for {device.name}: {exc}") from exc
     except (NetmikoTimeoutException, ConnectionException, ConnectionError) as exc:
         raise CollectionError(f"Connection failed for {device.name}: {exc}") from exc
-
 
 def compute_diff(current_lines: list[str], desired_snippet: list[str]) -> ConfigDiff:
     """Compute the diff between current config and desired snippet.
@@ -262,6 +282,8 @@ def apply_config(
     device_name = device.name
 
     logger.info("Starting remediation for %s (dry_run=%s)", device_name, dry_run)
+
+    device = device.model_copy(update={"timeout": timeout})
 
     # Step 1: Connect and get current config
     try:
@@ -339,8 +361,10 @@ def apply_config(
     # Step 6: Apply config
     logger.info("Applying %d lines to %s", len(diff.added_lines), device_name)
 
-    # Save current config for rollback
+    # Keep the pre-change config for rollback. Checkpoint MUST be taken
+    # while running-config is still good (before apply).
     rollback_config = current_config
+    checkpoint_file: str | None = None
 
     try:
         conn = _connect(device)
@@ -355,6 +379,11 @@ def apply_config(
 
     applied = False
     try:
+        # Checkpoint the pre-apply running-config to flash BEFORE any changes.
+        # Rolling back by re-copying running-config after a failed apply would
+        # snapshot the broken state — which is worse than no rollback at all.
+        checkpoint_file = _create_checkpoint(conn)
+
         # Enter config mode and apply lines.
         # Use the full config_snippet (not just diff.added_lines) so that
         # parent context commands (e.g. "interface Loopback999") are included
@@ -380,6 +409,7 @@ def apply_config(
             )
 
         logger.info("Successfully applied config to %s", device_name)
+        _cleanup_checkpoint(conn, checkpoint_file)
 
         return RemediationResult(
             device_name=device_name,
@@ -391,13 +421,15 @@ def apply_config(
     except Exception as exc:
         logger.error("Failed to apply config to %s: %s", device_name, exc)
 
-        # Step 7: Automatic rollback
+        # Step 7: Automatic rollback using the *pre-apply* checkpoint
         if applied:
             logger.warning("Attempting rollback for %s", device_name)
             try:
-                # Rollback: re-apply the previous running config
-                # We use configure replace if available, otherwise push lines
-                rollback_output = _rollback_config(conn, rollback_config)
+                rollback_output = _rollback_config(
+                    conn,
+                    rollback_config,
+                    checkpoint_file=checkpoint_file,
+                )
                 logger.info("Rollback successful for %s", rollback_output)
 
                 return RemediationResult(
@@ -439,17 +471,69 @@ def apply_config(
             pass
 
 
-def _rollback_config(conn: Any, previous_config: str) -> str:
-    """Attempt to rollback to a previous config.
+def _handle_copy_prompts(conn: Any, output: str) -> str:
+    """Respond to interactive copy/replace prompts (filename, overwrite, y/n)."""
+    lower = output.lower()
+    # Destination filename? — accept default
+    if "destination filename" in lower or "filename" in lower and "?" in lower:
+        output += conn.send_command_timing("\n", read_timeout=60)
+        lower = output.lower()
+    if "overwrite" in lower or "y/n" in lower or "yes/no" in lower or "[no]" in lower:
+        output += conn.send_command_timing("y", read_timeout=60)
+    return str(output)
+
+
+def _create_checkpoint(conn: Any) -> str:
+    """Snapshot running-config to flash *before* remediation changes.
+
+    Returns the flash filename of the checkpoint. Raises RemediationError
+    if the checkpoint cannot be created — fail closed rather than apply
+    without a recovery path.
+    """
+    checkpoint_file = f"_audnet_cp_{int(time.time())}"
+    try:
+        output = conn.send_command_timing(
+            f"copy running-config flash:{checkpoint_file}",
+            read_timeout=120,
+        )
+        output = _handle_copy_prompts(conn, output)
+        logger.info("Created pre-apply checkpoint flash:%s", checkpoint_file)
+        return checkpoint_file
+    except Exception as exc:
+        raise RemediationError(
+            f"Failed to create pre-apply checkpoint (refusing to apply): {exc}"
+        ) from exc
+
+
+def _cleanup_checkpoint(conn: Any, checkpoint_file: str | None) -> None:
+    """Best-effort delete of a flash checkpoint file."""
+    if not checkpoint_file:
+        return
+    try:
+        out = conn.send_command_timing(f"delete /force flash:{checkpoint_file}")
+        _handle_copy_prompts(conn, out)
+    except Exception:  # nosec B110  # pragma: no cover
+        logger.debug("Could not delete checkpoint flash:%s", checkpoint_file)
+
+
+def _rollback_config(
+    conn: Any,
+    previous_config: str,
+    *,
+    checkpoint_file: str | None = None,
+) -> str:
+    """Rollback to a pre-apply checkpoint (preferred) or previous config text.
 
     Strategy:
-    1. Try 'configure replace' with timing-based output (avoids prompt pattern
-       mismatch on IOS-XE configure replace interactive output)
-    2. Fall back to applying the previous config lines line-by-line
+    1. ``configure replace flash:<checkpoint> force`` where *checkpoint* was
+       created from the **pre-apply** running-config (never re-copy running
+       config after a failed apply — that would restore the broken state).
+    2. Fall back to pushing the in-memory *previous_config* lines.
 
     Args:
         conn: Active Netmiko connection
-        previous_config: The full previous running config text
+        previous_config: The full previous running config text (in-memory)
+        checkpoint_file: Flash filename created by :func:`_create_checkpoint`
 
     Returns:
         Output from the rollback command(s)
@@ -457,70 +541,63 @@ def _rollback_config(conn: Any, previous_config: str) -> str:
     Raises:
         RemediationRollbackError: If rollback fails
     """
-    rollback_file = f"_audnet_rollback_{int(time.time())}"
     last_exc: Exception | None = None
 
-    # Strategy 1: configure replace with timing-based output
-    try:
-        # Save previous config to a file on the device
-        conn.send_command_timing(f"copy running-config flash:{rollback_file}")
-
-        # Use send_command_timing to handle interactive output from
-        # configure replace on IOS-XE, which produces intermediate prompts
-        # (e.g., "Are you sure? [y/n]") that don't match the standard prompt.
-        output = conn.send_command_timing(
-            f"configure replace flash:{rollback_file} force",
-            read_timeout=120,
-        )
-
-        # Handle any confirmation prompts (e.g., "[y/n]", "[yes/no]", "? [no]:")
-        lower = output.lower()
-        if "y/n" in lower or "yes/no" in lower or "[no]" in lower:
-            output += conn.send_command_timing("y", read_timeout=120)
-
-        logger.info("configure replace rollback succeeded")
-
-        # configure replace disrupts the SSH session on IOS-XE.
-        # Disconnect and reconnect before cleanup to avoid ReadTimeout
-        # on subsequent commands.
+    # Strategy 1: configure replace from pre-apply flash checkpoint
+    if checkpoint_file:
         try:
-            conn.disconnect()
-        except Exception:  # pragma: no cover  # nosec B110
-            pass
-
-        # Reconnect for cleanup commands. If reconnect fails (e.g. device
-        # still converging), skip cleanup and return — the rollback itself
-        # already succeeded.
-        try:
-            # pragma: no cover
-            new_conn = ConnectHandler(
-                device_type=conn.device_type,
-                host=conn.host,
-                username=conn.username,
-                password=conn.password,
-                port=conn.port,
-                timeout=conn.timeout,
+            output = conn.send_command_timing(
+                f"configure replace flash:{checkpoint_file} force",
+                read_timeout=120,
             )
-            # Clean up rollback file on the new connection
-            try:
-                new_conn.send_command_timing(f"delete flash:{rollback_file}")
-            except Exception:  # nosec B110
-                pass
-            try:
-                new_conn.disconnect()
-            except Exception:  # nosec B110  # pragma: no cover
-                pass
-        except Exception:  # pragma: no cover  # nosec B110
-            pass
 
-        return str(output)
-    except Exception as exc:  # pragma: no cover
-        last_exc = exc
-        logger.warning("configure replace rollback failed: %s, trying next strategy", exc)
+            # Handle any confirmation prompts (e.g., "[y/n]", "[yes/no]", "? [no]:")
+            lower = output.lower()
+            if "y/n" in lower or "yes/no" in lower or "[no]" in lower:
+                output += conn.send_command_timing("y", read_timeout=120)
 
-    # Strategy 2: Line-by-line rollback (last resort)
+            logger.info("configure replace rollback succeeded from %s", checkpoint_file)
+
+            # configure replace disrupts the SSH session on IOS-XE.
+            try:
+                conn.disconnect()
+            except Exception:  # pragma: no cover  # nosec B110
+                pass
+
+            # Best-effort reconnect + cleanup of checkpoint file
+            try:  # pragma: no cover
+                new_conn = ConnectHandler(
+                    device_type=conn.device_type,
+                    host=conn.host,
+                    username=conn.username,
+                    password=conn.password,
+                    port=conn.port,
+                    timeout=conn.timeout,
+                    system_host_keys=True,
+                    ssh_strict=_ssh_strict_enabled(),
+                )
+                _cleanup_checkpoint(new_conn, checkpoint_file)
+                try:
+                    new_conn.disconnect()
+                except Exception:  # nosec B110  # pragma: no cover
+                    pass
+            except Exception:  # pragma: no cover  # nosec B110
+                pass
+
+            return str(output)
+        except Exception as exc:  # pragma: no cover
+            last_exc = exc
+            logger.warning(
+                "configure replace rollback failed: %s, trying line-by-line", exc
+            )
+
+    # Strategy 2: Line-by-line rollback from in-memory previous_config
     try:
         lines = [line for line in previous_config.splitlines() if line.strip()]
+        if not lines:
+            raise RemediationRollbackError(
+                "No previous config text available for line-by-line rollback"
+            )
         output = conn.send_config_set(lines, exit_config_mode=True)
         return str(output)  # pragma: no cover
     except Exception as exc:  # pragma: no cover
@@ -543,11 +620,10 @@ def remediate_devices(
     max_workers: int = 1,
     timeout: int = 30,
 ) -> list[RemediationResult]:
-    """Apply remediation to multiple devices sequentially.
+    """Apply remediation to one or more devices.
 
-    Note: Remediation is sequential (max_workers=1 by default) for safety.
-    Parallel remediation is dangerous — if rollback fails, you want to
-    stop the entire pipeline.
+    Sequential mode (``max_workers=1``, default) stops the pipeline on the
+    first live failure. Parallel mode applies to all devices concurrently.
 
     Args:
         devices: Target devices
@@ -555,14 +631,35 @@ def remediate_devices(
         dry_run: If True, only compute diffs
         auto_approve: If True, skip interactive approval
         force: If True, apply even if no changes detected
-        max_workers: Parallel workers (default 1 for safety)
+        max_workers: Parallel workers (default 1 for safe sequential pipeline)
         timeout: SSH timeout in seconds for each device connection
 
     Returns:
         List of RemediationResult, one per device
     """
-    results: list[RemediationResult] = []
+    if max_workers > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        ordered: dict[str, RemediationResult] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(
+                    apply_config,
+                    device,
+                    config_snippet,
+                    dry_run=dry_run,
+                    auto_approve=auto_approve,
+                    force=force,
+                    timeout=timeout,
+                ): device
+                for device in devices
+            }
+            for future in as_completed(futures):
+                device = futures[future]
+                ordered[device.name] = future.result()
+        return [ordered[d.name] for d in devices if d.name in ordered]
+
+    results: list[RemediationResult] = []
     for device in devices:
         result = apply_config(
             device,
@@ -574,14 +671,12 @@ def remediate_devices(
         )
         results.append(result)
 
-        # Stop pipeline on failure (unless dry_run)
         if not result.success and not dry_run:
             logger.error(
                 "Remediation failed for %s — stopping pipeline. Error: %s",
                 device.name,
                 result.error,
             )
-            # Mark remaining devices as skipped
             for remaining in devices[len(results) :]:
                 results.append(
                     RemediationResult(

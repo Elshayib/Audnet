@@ -56,9 +56,9 @@ class TestDevice:
         d = Device(name="rtr01", host="localhost", password="x")
         assert d.host == "localhost"
 
-    def test_host_validation_rejects_single_word(self):
-        with pytest.raises(ValidationError):
-            Device(name="rtr01", host="router1", password="x")
+    def test_host_validation_accepts_short_hostname(self):
+        d = Device(name="rtr01", host="router1", password="x")
+        assert d.host == "router1"
 
     def test_host_validation_rejects_special_chars(self):
         with pytest.raises(ValidationError):

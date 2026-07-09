@@ -1,5 +1,6 @@
-Value Required PORT (\d+)
-Value STATUS (Up|Down)
+Value Required INTERFACE (\S+)
+Value STATUS (Up|Down|up|down)
 
 Start
-  ^\s+${PORT}\s+\S+.*\s+${STATUS}\s+ -> Record
+ # Port-style brief: "  1  ...  Up  ..." or named ports
+ ^\s*${INTERFACE}\s+\S+.*\s+${STATUS}\s+ -> Record

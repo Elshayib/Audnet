@@ -25,7 +25,9 @@ def _load_template(name: str) -> str:
         ) from exc
 
 
-_jinja = Environment(loader=BaseLoader(), autoescape=True)
+# HTML gets autoescape; Markdown uses a separate env so cells are not HTML-entity encoded
+_jinja_html = Environment(loader=BaseLoader(), autoescape=True)
+_jinja_md = Environment(loader=BaseLoader(), autoescape=False)
 
 _md_source: str | None = None
 _html_source: str | None = None
@@ -46,7 +48,7 @@ def _get_html_source() -> str:
 
 
 def render_markdown(reports: list[AuditReport]) -> str:
-    template = _jinja.from_string(_get_md_source())
+    template = _jinja_md.from_string(_get_md_source())
     return template.render(
         reports=reports,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -54,7 +56,7 @@ def render_markdown(reports: list[AuditReport]) -> str:
 
 
 def render_html(reports: list[AuditReport]) -> str:
-    template = _jinja.from_string(_get_html_source())
+    template = _jinja_html.from_string(_get_html_source())
     return template.render(
         reports=reports,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
