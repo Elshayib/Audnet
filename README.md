@@ -99,12 +99,11 @@ audnet --version
 git clone https://github.com/Elshayib/Audnet.git
 cd audnet
 
-# 2. Install dependencies (uses uv.lock for reproducible installs)
-uv venv
-uv pip install -e ".[dev]"
+# 2. Install dependencies from uv.lock (reproducible)
+uv sync --locked --extra dev
 
 # 3. Activate virtual environment
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # 4. Install pre-commit hooks
 pre-commit install
@@ -116,7 +115,7 @@ python -c "import audnet; print(audnet.__version__)"
 pytest tests/ -v
 ```
 
-`uv pip install -e ".[dev]"` reads the committed `uv.lock` to install the exact same dependency versions across all environments. Use `uv lock` (no args) to regenerate the lockfile after adding new dependencies.
+`uv sync --locked --extra dev` installs from the committed `uv.lock` for reproducible dependency versions across all environments. After changing dependencies in `pyproject.toml`, run `uv lock` and commit the updated lockfile.
 
 ### Quick start
 
@@ -428,6 +427,8 @@ audnet list-checks
 #### Show version
 
 ```bash
+audnet --version
+# or
 audnet version
 ```
 
@@ -551,10 +552,9 @@ audnet/
 │   └── security_baseline.yaml  # Compliance rules configuration
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml              # Lint + security + test (3.12/3.13/3.14)
-│       ├── publish.yml         # PyPI publish on v* tags (Trusted Publishing)
-│       ├── docker.yml          # Docker image publish to ghcr.io on v* tags
-│       ├── release.yml         # GitHub Release creation on v* tags
+│       ├── ci.yml              # PR/push CI: validate + package smoke + Docker smoke
+│       ├── reusable-validate.yml  # Shared validate job (lint/security/test matrix)
+│       ├── release.yml         # Unified v* release: validate → build → PyPI → GHCR → GitHub Release
 │       ├── auto-close-issues.yml  # Auto-close linked issues on PR merge
 │       ├── issue-labeler.yml   # Auto-label issues
 │       ├── labeler.yml         # Auto-label PRs by changed paths

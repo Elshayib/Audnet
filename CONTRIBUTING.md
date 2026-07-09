@@ -7,9 +7,12 @@ Thanks for your interest in improving audnet!
 ```bash
 git clone https://github.com/Elshayib/Audnet.git
 cd audnet
-uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv sync --locked --extra dev
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pre-commit install
 ```
+
+`uv sync --locked --extra dev` installs from the committed `uv.lock`. After changing dependencies in `pyproject.toml`, run `uv lock` and commit the updated lockfile.
 
 ## Adding Compliance Rules
 
@@ -65,10 +68,10 @@ Create a release when a meaningful set of changes has accumulated on `master` �
 
 ### Steps
 
-1. **Update `CHANGELOG.md`**: move items from `[Unreleased]` to a new version section:
+1. **Update `CHANGELOG.md`** (**required** — release fails without a matching CHANGELOG section): move items from `[Unreleased]` to a new version section:
 
    ```markdown
-   ## [0.7.0] - 2026-06-11
+   ## [X.Y.Z] - YYYY-MM-DD
 
    ### Added
    - New feature X (#35)
@@ -78,28 +81,25 @@ Create a release when a meaningful set of changes has accumulated on `master` �
 
    ```bash
    git add CHANGELOG.md
-   git commit -m "chore(release): prepare v0.7.0"
+   git commit -m "chore(release): prepare vX.Y.Z"
    ```
 
-3. **Create an annotated tag**:
+3. **Create an annotated tag and push it**:
 
    ```bash
-   git tag -a v0.7.0 -m "Release v0.7.0"
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 
-4. **Push the tag**:
+4. **Tag triggers the [Release](.github/workflows/release.yml) workflow only**, which runs:
 
-   ```bash
-   git push origin v0.7.0
-   ```
+   - **validate** — full CI bar (lint, security, test matrix via reusable validate)
+   - **build** — wheel and sdist
+   - **PyPI** — publish via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
+   - **GHCR** — Docker image publish to `ghcr.io`
+   - **GitHub Release** — release notes from the CHANGELOG section, with wheel/sdist assets
 
-   Pushing the tag triggers the [publish workflow](.github/workflows/publish.yml) which:
-   - Builds the wheel and sdist with `uv build`
-   - Publishes to PyPI automatically via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no API token needed)
-   - Creates a GitHub Release with the CHANGELOG section as release notes
-   - Uploads build artifacts to the release
-
-   **No manual PyPI upload or GitHub Release creation is required.**
+   **No manual PyPI, GHCR, or GitHub Release UI steps are required.**
 
 ### Versioning guidelines
 
@@ -112,8 +112,18 @@ Create a release when a meaningful set of changes has accumulated on `master` �
 ### Changelog maintenance
 
 - Every PR that users should know about must include a CHANGELOG entry under `[Unreleased]`
-- Group entries under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`
+- Group entries under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, or `Build`
 - Reference the PR number at the end of each entry: `description (#NN)`
+
+## Required status checks (branch protection)
+
+Configure branch protection on `master` so merges require the CI workflow jobs:
+
+| Workflow | Required jobs |
+|----------|---------------|
+| [CI](.github/workflows/ci.yml) | `validate` (lint / security / test matrix), `smoke`, `docker-smoke` |
+
+These jobs must be green before merge. The Release workflow is tag-driven and is not a PR merge gate.
 
 ## Reporting Issues
 

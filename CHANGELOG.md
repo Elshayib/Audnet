@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Build
 
+- CI uses `uv sync --locked --extra dev`; Bandit uploads SARIF to Code Scanning; coverage XML artifacts retained
+- Package smoke (`audnet --version` + `audit --dry-run` on fixtures) and Docker build smoke on every PR
+- Unified `v*` release workflow: validate → build → PyPI → GHCR → GitHub Release from CHANGELOG (replaces separate publish/docker tag workflows)
+- CLI supports `audnet --version` (in addition to `audnet version`)
 - `.dockerignore`: add `!README.md` and `!LICENSE` allowlist entries; `Dockerfile`: copy `README.md` in builder stage for hatchling metadata (#199)
 
 ### Documentation
