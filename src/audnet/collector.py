@@ -69,7 +69,7 @@ def _do_ssh_collect(device: Device) -> dict[Slot, str]:
     Retries transient errors up to 3 times with exponential backoff.
     Returns a dict mapping Slot -> raw CLI output.
     """
-    params: dict = {
+    params: dict[str, object] = {
         "device_type": device.device_type,
         "host": device.host,
         "username": device.username,
