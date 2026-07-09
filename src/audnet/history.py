@@ -45,12 +45,13 @@ def _connect(db_file: Path) -> sqlite3.Connection:
     return conn
 
 
-def _db_session(db_file: Path):
+def _db_session(db_file: Path) -> Any:
     """Context manager that opens, yields, and always closes a connection."""
     from contextlib import contextmanager
+    from collections.abc import Iterator
 
     @contextmanager
-    def _cm():
+    def _cm() -> Iterator[sqlite3.Connection]:
         conn = _connect(db_file)
         try:
             yield conn
