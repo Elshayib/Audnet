@@ -143,11 +143,13 @@ def _resolve_device_env(device: Device) -> Device:
         else:
             raw = val
         if isinstance(raw, str) and "${" in raw:
-            resolved = _resolve_env(raw)
-            updates[field] = resolved
+            updates[field] = _resolve_env(raw)
     if not updates:
         return device
-    return device.model_copy(update=updates)
+    # Re-validate so SecretStr fields stay SecretStr (model_copy does not coerce)
+    data = device.model_dump(mode="python")
+    data.update(updates)
+    return Device.model_validate(data)
 
 
 def _check_strict_credentials(devices: list[Device]) -> None:

@@ -5,7 +5,9 @@ Value PROTO (\S+)
 Value IP_ADDRESS (\S+)
 
 Start
- # show interfaces terse: Interface Admin Link Proto Local Remote
+ # Skip header row: Interface Admin Link Proto Local Remote
+ ^Interface\s+Admin\s+Link
+ # show interfaces terse data lines
  # ge-0/0/0  up  up  inet  10.0.0.1/24
  ^\s*${INTERFACE}\s+${ADMIN_STATUS}\s+${LINK_STATUS}\s+${PROTO}\s+${IP_ADDRESS}(?:\s+\S+)*\s*$$ -> Record
  # Interface without address (or with only admin/link)

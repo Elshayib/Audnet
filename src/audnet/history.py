@@ -34,11 +34,34 @@ def _db_path(history_dir: Path) -> Path:
 
 
 def _connect(db_file: Path) -> sqlite3.Connection:
-    """Open SQLite with WAL + busy timeout for concurrent audit writers."""
+    """Open SQLite with WAL + busy timeout for concurrent audit writers.
+
+    Callers must close the connection (use a try/finally). Prefer
+    :func:`_db_session` for automatic cleanup.
+    """
     conn = sqlite3.connect(db_file, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     return conn
+
+
+def _db_session(db_file: Path):
+    """Context manager that opens, yields, and always closes a connection."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        conn = _connect(db_file)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    return _cm()
 
 
 def init_db(history_dir: Path | None = None) -> Path:
@@ -50,7 +73,7 @@ def init_db(history_dir: Path | None = None) -> Path:
         history_dir = _DEFAULT_HISTORY_DIR
     history_dir.mkdir(parents=True, exist_ok=True)
     db_file = _db_path(history_dir)
-    with _connect(db_file) as conn:
+    with _db_session(db_file) as conn:
         conn.executescript(_CREATE_TABLE_SQL)
         conn.executescript(_CREATE_INDEX_SQL)
     return db_file
@@ -76,7 +99,7 @@ def save_run(
 
     run_at = datetime.now(timezone.utc).isoformat()
     rows_inserted = 0
-    with _connect(db_file) as conn:
+    with _db_session(db_file) as conn:
         conn.executescript(_CREATE_TABLE_SQL)
         conn.executescript(_CREATE_INDEX_SQL)
         for report in reports:
@@ -100,7 +123,6 @@ def save_run(
                 ),
             )
             rows_inserted += 1
-        conn.commit()
     logger.debug("Saved %d audit reports to %s", rows_inserted, db_file)
     return rows_inserted
 
@@ -152,26 +174,26 @@ def get_runs(
     query = f"SELECT * FROM runs {where_clause} ORDER BY id DESC LIMIT ?"  # nosec B608
     params.append(limit)
 
-    with _connect(db_file) as conn:
+    with _db_session(db_file) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(query, params).fetchall()
 
-    result = []
-    for row in rows:
-        try:
-            checks = json.loads(row["checks_json"])
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("Corrupt checks_json for run id=%s — skipping", row["id"])
-            continue
-        result.append(
-            {
-                "id": row["id"],
-                "run_at": row["run_at"],
-                "device_name": row["device_name"],
-                "overall_pass": bool(row["overall_pass"]),
-                "checks": checks,
-            }
-        )
+        result = []
+        for row in rows:
+            try:
+                checks = json.loads(row["checks_json"])
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Corrupt checks_json for run id=%s — skipping", row["id"])
+                continue
+            result.append(
+                {
+                    "id": row["id"],
+                    "run_at": row["run_at"],
+                    "device_name": row["device_name"],
+                    "overall_pass": bool(row["overall_pass"]),
+                    "checks": checks,
+                }
+            )
     return result
 
 
@@ -223,7 +245,7 @@ def get_last_runs(
     db_file = _db_path(history_dir)
     if not db_file.exists():
         return {}
-    with _connect(db_file) as conn:
+    with _db_session(db_file) as conn:
         conn.row_factory = sqlite3.Row
         # Latest complete run per device (non-empty checks_json array)
         rows = conn.execute(
@@ -239,22 +261,22 @@ def get_last_runs(
             ) latest ON r.id = latest.max_id
             """
         ).fetchall()
-    result = {}
-    for row in rows:
-        device = row["device_name"]
-        try:
-            checks = json.loads(row["checks_json"])
-        except (json.JSONDecodeError, TypeError):
-            continue
-        run = {
-            "id": row["id"],
-            "run_at": row["run_at"],
-            "device_name": device,
-            "overall_pass": bool(row["overall_pass"]),
-            "checks": checks,
-        }
-        if _is_complete_baseline(run):
-            result[device] = run
+        result = {}
+        for row in rows:
+            device = row["device_name"]
+            try:
+                checks = json.loads(row["checks_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            run = {
+                "id": row["id"],
+                "run_at": row["run_at"],
+                "device_name": device,
+                "overall_pass": bool(row["overall_pass"]),
+                "checks": checks,
+            }
+            if _is_complete_baseline(run):
+                result[device] = run
     return result
 
 
