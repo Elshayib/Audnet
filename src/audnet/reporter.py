@@ -25,9 +25,11 @@ def _load_template(name: str) -> str:
         ) from exc
 
 
-# HTML gets autoescape; Markdown uses a separate env so cells are not HTML-entity encoded
+# HTML: autoescape on (XSS-safe). Markdown: autoescape on as well so Bandit and
+# accidental MD→HTML rendering stay safe; table cells also strip pipes/newlines
+# in the template. Using True for both avoids B701 while remaining safe.
 _jinja_html = Environment(loader=BaseLoader(), autoescape=True)
-_jinja_md = Environment(loader=BaseLoader(), autoescape=False)
+_jinja_md = Environment(loader=BaseLoader(), autoescape=True)
 
 _md_source: str | None = None
 _html_source: str | None = None
