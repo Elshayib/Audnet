@@ -30,4 +30,5 @@ baselines/
 .worktrees/
 .smoke-venv/
 bandit.sarif
+bandit.json
 
