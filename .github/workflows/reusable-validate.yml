@@ -1,0 +1,128 @@
+name: Reusable Validate
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version for non-matrix jobs
+        required: false
+        type: string
+        default: "3.14"
+      run-matrix-tests:
+        description: If true, run full 3.12/3.13/3.14 matrix
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked --extra dev
+
+      - name: Lint with ruff
+        run: uv run ruff check src/ tests/
+
+      - name: Type check with mypy
+        run: uv run mypy src/
+
+  security:
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked --extra dev
+
+      - name: Run Bandit (SARIF + fail on findings)
+        run: |
+          uv run bandit -r src/ -c pyproject.toml -f sarif -o bandit.sarif
+          # Also fail the job with human-readable output if issues exist
+          uv run bandit -r src/ -c pyproject.toml
+
+      - name: Upload Bandit SARIF
+        if: always() && hashFiles('bandit.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+
+      - name: Run pip-audit dependency check
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: uv run pip-audit --ignore-vuln CVE-2026-44405 --ignore-vuln PYSEC-2026-196 --ignore-vuln CVE-2026-30922
+
+  test:
+    needs: security
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ inputs.run-matrix-tests && fromJSON('["3.12","3.13","3.14"]') || fromJSON(format('["{0}"]', inputs.python-version)) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked --extra dev
+
+      - name: Run tests with coverage
+        run: >
+          uv run pytest tests/ -v --tb=short
+          --cov=audnet
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=90
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
