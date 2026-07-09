@@ -66,8 +66,19 @@ jobs:
       - name: Sync dependencies (locked)
         run: uv sync --locked --extra dev
 
-      - name: Run Bandit security scan (SARIF)
-        run: uv run bandit -r src/ -c pyproject.toml -f sarif -o bandit.sarif
+      # Bandit has no native -f sarif; emit JSON then convert for Code Scanning.
+      # Preserve Bandit's exit code so findings still fail the job after SARIF is written.
+      - name: Run Bandit security scan
+        run: |
+          set -uo pipefail
+          set +e
+          uv run bandit -r src/ -c pyproject.toml -f json -o bandit.json
+          bandit_rc=$?
+          set -e
+          if [ -f bandit.json ]; then
+            uv run python scripts/bandit_json_to_sarif.py bandit.json bandit.sarif
+          fi
+          exit "$bandit_rc"
 
       - name: Upload Bandit SARIF
         if: always() && hashFiles('bandit.sarif') != ''
