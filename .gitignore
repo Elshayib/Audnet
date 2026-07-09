@@ -25,3 +25,9 @@ baselines/
 
 # Agent working files
 .hermes/
+
+# Git worktrees / local smoke
+.worktrees/
+.smoke-venv/
+bandit.sarif
+
