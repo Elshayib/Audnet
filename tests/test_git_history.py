@@ -316,6 +316,29 @@ class TestInitGitRepo:
         repo = init_git_repo(tmp_path / "sub")
         assert repo.working_tree_dir is not None
 
+    def test_creates_bare_repo(self, tmp_path: Path):
+        # Bug fix regression: bare repos must initialize without crashing
+        # (no seed .gitkeep commit, since a bare repo has no working tree).
+        repo_path = tmp_path / "bare-repo.git"
+        repo = init_git_repo(repo_path, bare=True)
+        assert repo.bare is True
+        assert repo.working_tree_dir is None
+        assert (repo_path / "config").exists()
+
+    def test_save_on_bare_repo_raises(self, tmp_path: Path):
+        # The previously-dead working-tree guard in save_config_snapshot is now
+        # reachable: a bare repo has no working tree, so saving configs errors.
+        repo_path = tmp_path / "bare-repo.git"
+        init_git_repo(repo_path, bare=True)
+        with pytest.raises(GitHistoryError):
+            save_config_snapshot({"rtr01": "hostname rtr01\n"}, history_dir=repo_path)
+
+    def test_rollback_on_bare_repo_raises(self, tmp_path: Path):
+        repo_path = tmp_path / "bare-repo.git"
+        init_git_repo(repo_path, bare=True)
+        with pytest.raises(GitHistoryError):
+            rollback_config("rtr01", "HEAD", history_dir=repo_path)
+
 
 # ---------------------------------------------------------------------------
 # save_config_snapshot
