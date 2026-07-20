@@ -23,6 +23,22 @@ audit_report.*
 inventories/
 baselines/
 
+# Secrets / credentials — never commit
+.env
+.env.*
+*.env
+secrets.yaml
+secrets.yml
+# SSH / API private keys
+id_rsa
+id_ed25519
+id_dsa
+id_ecdsa
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Agent working files
 .hermes/
 
