@@ -105,9 +105,7 @@ def sanitize_config(raw_config: str, device_name: str) -> str:
     return "".join(sanitized)
 
 
-def sanitize_config_to_file(
-    raw_config: str, device_name: str, output_path: Path
-) -> None:
+def sanitize_config_to_file(raw_config: str, device_name: str, output_path: Path) -> None:
     """Sanitize a device config and write directly to a file.
 
     Processes the raw config line-by-line, writing each line to *output_path*
@@ -169,17 +167,19 @@ def init_git_repo(
 
     repo_path.mkdir(parents=True, exist_ok=True)
     repo = gitpython.Repo.init(repo_path, bare=bare)
-
-    # Create an initial commit so the repo has a valid HEAD
+    # Configure user identity even for bare repos (config lives in git_dir).
     _configure_repo(repo)
-    initial_file = repo_path / ".gitkeep"
-    initial_file.touch()
-    repo.index.add([str(initial_file.relative_to(repo_path))])
-    repo.index.commit(
-        "chore: initialize audnet Git config history repo",
-        commit_date=_commit_dt(),
-        author_date=_commit_dt(),
-    )
+    if not bare:
+        # Seed an initial commit so the repo has a valid HEAD. A bare repo has
+        # no working tree, so no seed file/commit is created there.
+        initial_file = repo_path / ".gitkeep"
+        initial_file.touch()
+        repo.index.add([str(initial_file.relative_to(repo_path))])
+        repo.index.commit(
+            "chore: initialize audnet Git config history repo",
+            commit_date=_commit_dt(),
+            author_date=_commit_dt(),
+        )
     logger.info("Initialized new Git config history repo at %s", repo_path)
     return repo
 

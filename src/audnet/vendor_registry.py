@@ -352,11 +352,19 @@ async def detect_vendor_snmp(
     except ImportError:
         from pysnmp.hlapi.asyncio import getCmd as _get_cmd  # pysnmp 4.x
 
+    # pysnmp 7.x exposes UdpTransportTarget as an awaitable factory
+    # (UdpTransportTarget.create((host, port), timeout=, retries=)); the old
+    # pysnmp 4.x positional-constructor form is kept as a fallback.
+    try:
+        transport_target = await UdpTransportTarget.create((host, port), timeout=timeout, retries=1)
+    except (AttributeError, TypeError):  # pragma: no cover - pysnmp 4.x path
+        transport_target = UdpTransportTarget((host, port), timeout=timeout, retries=1)
+
     try:
         iterator = _get_cmd(
             SnmpEngine(),
             CommunityData(community),
-            UdpTransportTarget((host, port), timeout=timeout, retries=1),
+            transport_target,
             ContextData(),
             ObjectType(ObjectIdentity(_SYS_DESCR_OID)),
         )

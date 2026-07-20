@@ -1,9 +1,9 @@
 """Tests for the SNMP-based vendor auto-detection path in vendor_registry.
 
-NOTE: these unit tests isolate the external SNMP transport
-(``pysnmp.hlapi.asyncio.UdpTransportTarget``) because the project's current
-call signature is incompatible with pysnmp 7.x (see flagged issue). The tests
-exercise ``detect_vendor_snmp``'s branching logic, not the live transport.
+The transport target is isolated because a real SNMP query would hit the
+network. These tests exercise ``detect_vendor_snmp``'s branching logic with a
+mocked ``get_cmd``; a separate live test confirms the pysnmp 7.x
+``await UdpTransportTarget.create(...)`` call shape works without crashing.
 """
 
 from typing import Any
@@ -18,12 +18,17 @@ _SnmpResult = tuple[Any, Any, Any, list[tuple[Any, Any]]]
 
 
 class _DummyTransportTarget:
-    """Stand-in for UdpTransportTarget so the code under test can run without
-    hitting the pysnmp 7.x constructor incompatibility. Accepts the same
-    call shape the project uses: ``UdpTransportTarget((host, port), timeout=, retries=)``."""
+    """Stand-in for UdpTransportTarget mirroring the pysnmp 7.x awaitable
+    factory: ``await UdpTransportTarget.create((host, port), timeout=, retries=)``."""
 
     def __init__(self, address: Any, timeout: float = 1, retries: int = 5, **_kwargs: Any) -> None:
         self.address = address
+
+    @classmethod
+    async def create(
+        cls, address: Any, timeout: float = 1, retries: int = 5, **_kwargs: Any
+    ) -> "_DummyTransportTarget":
+        return cls(address, timeout=timeout, retries=retries)
 
 
 def _patch_snmp(
@@ -31,11 +36,7 @@ def _patch_snmp(
     get_cmd_result: _SnmpResult | None = None,
     raise_exc: Exception | None = None,
 ) -> None:
-    """Patch the in-function imports used by ``detect_vendor_snmp``.
-
-    Either ``get_cmd_result`` (a pysnmp 4-tuple) is returned when awaited, or
-    ``raise_exc`` is raised when the (mocked) get_cmd is invoked.
-    """
+    """Patch the in-function imports used by ``detect_vendor_snmp``."""
 
     async def _fake_get_cmd(*_args: Any, **_kwargs: Any) -> _SnmpResult:
         if raise_exc is not None:
@@ -104,3 +105,13 @@ class TestDetectVendorSnmp:
         monkeypatch.setattr(_asyncio_hlapi, "getCmd", _fake_getCmd, raising=False)
         monkeypatch.setattr(_asyncio_hlapi, "UdpTransportTarget", _DummyTransportTarget)
         assert await detect_vendor_snmp("10.0.0.1") == "cisco_ios"
+
+    async def test_live_pysnmp7_create_does_not_crash(self, monkeypatch: MonkeyPatch) -> None:
+        # Bug fix regression: pysnmp 7.x requires `await UdpTransportTarget.create(...)`.
+        # Use the REAL UdpTransportTarget (not the dummy) so .create() is exercised.
+        async def _fake_get_cmd(*_args: Any, **_kwargs: Any) -> _SnmpResult:
+            return ("RequestTimedOut", 0, 0, [])
+
+        monkeypatch.setattr(_asyncio_hlapi, "get_cmd", _fake_get_cmd)
+        result = await detect_vendor_snmp("192.0.2.1", timeout=1, port=161)
+        assert result == "cisco_ios"

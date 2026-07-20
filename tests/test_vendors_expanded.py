@@ -326,26 +326,34 @@ class TestDetectVendorSNMP:
 
     @pytest.mark.asyncio
     async def test_snmp_detection_with_mock(self):
-        """SNMP detection parses sysDescr and returns correct vendor."""
+        """SNMP detection parses sysDescr and returns correct vendor.
+
+        Hermetic: the transport target is mocked so no real network call is
+        made. The fixture sysDescr is Cisco IOS-XE, so the expected vendor is
+        cisco_xe (previously this test passed only because the broken pysnmp
+        4.x transport constructor raised and the broad except fell back).
+        """
         from unittest.mock import AsyncMock, patch
 
         from audnet.vendor_registry import detect_vendor_snmp
 
-        # Mock the pysnmp response: simulate a Cisco IOS-XE sysDescr
         mock_var_bind = (None, "Cisco IOS-XE Software, Version 17.15.1")
         mock_result = (None, 0, 0, [mock_var_bind])
 
-        # pysnmp 7.x exports get_cmd; 4.x exports getCmd
-        try:
-            from pysnmp.hlapi.asyncio import get_cmd  # noqa: F401
+        class _DummyTransportTarget:
+            def __init__(self, address, timeout=1, retries=5, **_kw):
+                self.address = address
 
-            pysnmp_path = "pysnmp.hlapi.asyncio.get_cmd"
-        except ImportError:
-            pysnmp_path = "pysnmp.hlapi.asyncio.getCmd"
+            @classmethod
+            async def create(cls, address, timeout=1, retries=5, **_kw):
+                return cls(address, timeout=timeout, retries=retries)
 
-        with patch(pysnmp_path, new_callable=AsyncMock, return_value=mock_result):
+        with (
+            patch("pysnmp.hlapi.asyncio.get_cmd", new_callable=AsyncMock, return_value=mock_result),
+            patch("pysnmp.hlapi.asyncio.UdpTransportTarget", _DummyTransportTarget),
+        ):
             result = await detect_vendor_snmp("10.0.0.1", timeout=1)
-        assert result == "cisco_ios"
+        assert result == "cisco_xe"
 
     @pytest.mark.asyncio
     async def test_snmp_detection_error(self):
