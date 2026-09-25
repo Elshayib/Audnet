@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-19
+
 ### Build
 
 - CI uses `uv sync --locked --extra dev`; Bandit uploads SARIF to Code Scanning; coverage XML artifacts retained
@@ -17,9 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- SECURITY.md version table updated: 0.3.x supported, 0.2.x EOL (#174)
+- SECURITY.md version table: 0.4.x supported, 0.3.x EOL
 - README project structure tree: fix `entrypoint.sh` path to `docker/entrypoint.sh`, add missing `labeler.yml` workflow, add `AUDNET_SMTP_PASSWORD` to Docker env var table
 - CHANGELOG.md: reorganized — moved all v0.3.0 fixes/performance items from `[Unreleased]` to `[0.3.0]` section
+- Agent skills config under `docs/agents/` (GitHub issue tracker, triage labels, single-context domain docs) and `AGENTS.md`
+- `CONTEXT.md` glossary (Operator, Device)
+- ADR-0001: OSS-only; licensing/tenants/desktop do not land on `master`; repo frozen as a portfolio artifact
 
 ## [0.3.0] - 2026-06-18
 
