@@ -95,7 +95,7 @@ Create a release when a meaningful set of changes has accumulated on `master` �
 
    - **validate** — full CI bar (lint, security, test matrix via reusable validate)
    - **build** — wheel and sdist
-   - **PyPI** — publish via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
+   - **PyPI** — publish via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The PyPI publisher must use workflow `release.yml` and environment `pypi` (not the retired `publish.yml`).
    - **GHCR** — Docker image publish to `ghcr.io`
    - **GitHub Release** — release notes from the CHANGELOG section, with wheel/sdist assets
 
