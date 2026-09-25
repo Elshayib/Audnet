@@ -31,10 +31,10 @@ dependencies = [
     "rich>=13.0",
     "structlog>=24.0",
     "tenacity>=8.5.0",
-    "asyncssh>=2.23.1",
-    "GitPython>=3.1.0",
+    "asyncssh>=2.24.0",
+    "GitPython>=3.1.60",
     "pysnmp>=7.0",
-    "aiosmtplib>=5.0",
+    "aiosmtplib>=5.1.2",
     "httpx>=0.28.0",
 ]
 

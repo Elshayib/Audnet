@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-25
+
+### Security
+
+- Bump `asyncssh` (>=2.24.0), `GitPython` (>=3.1.60), `aiosmtplib` (>=5.1.2) and refresh the lockfile (`anyio`, `cryptography`, `pyasn1`, `pip`) so `pip-audit` is clean. v0.4.0's release gate failed on CVEs published after the July lock.
+
 ## [0.4.0] - 2026-09-19
 
 ### Build
