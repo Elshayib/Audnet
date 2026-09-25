@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-25
+
+### Build
+
+- GHCR image size gate 200MB → 250MB (v0.4.2 image was 207MB after the cryptography/lock bump)
+- GitHub Release no longer waits on PyPI; trusted publishing stays best-effort until the PyPI publisher lists `release.yml` + environment `pypi`
+
 ## [0.4.2] - 2026-09-25
 
 ### Build

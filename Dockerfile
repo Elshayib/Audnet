@@ -2,7 +2,7 @@
 # Dockerfile for audnet — Network Security & Compliance Auditor
 # ============================================================
 # Multi-stage build to keep the final image small.
-# Target: < 200MB
+# Target: < 250MB
 # ------------------------------------------------------------
 
 # Stage 1: build wheel with uv

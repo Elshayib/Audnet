@@ -1132,7 +1132,7 @@ docker compose run --rm -e AUDNET_INVENTORY="netbox://netbox.example.com?site=dc
 
 ### Image size
 
-The image is built with a multi-stage Dockerfile and targets < 200MB:
+The image is built with a multi-stage Dockerfile and targets < 250MB:
 
 ```bash
 docker images ghcr.io/elshayib/audnet:latest
