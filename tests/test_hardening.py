@@ -322,13 +322,11 @@ class TestCollectorParams:
         monkeypatch.setenv("AUDNET_SSH_STRICT_KEY", "1")
         assert _ssh_strict_enabled() is True
 
-    @patch("audnet.collector.ConnectHandler")
+    @patch("audnet.netmiko_adapter.ConnectHandler")
     def test_enable_called_when_secret_set(self, mock_cls, monkeypatch):
-        from audnet.collector import _do_ssh_collect
+        from audnet.netmiko_adapter import NetmikoAdapter
 
         mock_conn = MagicMock()
-        mock_conn.__enter__.return_value = mock_conn
-        mock_conn.__exit__.return_value = False
         mock_conn.send_command.side_effect = ["ifaces", "version", "config"]
         mock_cls.return_value = mock_conn
 
@@ -340,7 +338,9 @@ class TestCollectorParams:
             secret="enable-pw",
         )
         monkeypatch.setenv("AUDNET_SSH_STRICT_KEY", "0")
-        _do_ssh_collect(d)
+        adapter = NetmikoAdapter()
+        conn = adapter.connect(d)
+        assert conn is mock_conn
         mock_conn.enable.assert_called_once()
         # ConnectHandler(**params) — kwargs form
         kwargs = mock_cls.call_args.kwargs
@@ -602,7 +602,7 @@ class TestCollectorIsolation:
         d1 = Device(name="ok", host="10.0.0.1", username="a", password="p")
         d2 = Device(name="bad", host="10.0.0.2", username="a", password="p")
 
-        def fake_collect(dev):
+        def fake_collect(dev, adapter=None):
             if dev.name == "bad":
                 # Simulate a future that raises unexpected error when result() is called
                 raise RuntimeError("boom")
@@ -615,7 +615,7 @@ class TestCollectorIsolation:
             )
 
         # Patch at thread level: make collect_device raise for bad device
-        with patch("audnet.collector.collect_device", side_effect=fake_collect):
+        with patch("audnet.collection.collect_device", side_effect=fake_collect):
             snaps = collect_all([d1, d2], max_workers=2)
         assert len(snaps) == 2
         by_name = {s.device_name: s for s in snaps}

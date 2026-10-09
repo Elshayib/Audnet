@@ -27,7 +27,7 @@ def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw:
 
 
 class TestFullPipeline:
-    @patch("audnet.collector.ConnectHandler")
+    @patch("audnet.netmiko_adapter.ConnectHandler")
     def test_end_to_end_compliant_device(self, mock_cls, tmp_path):
         """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device."""
         mock_conn = MagicMock()
@@ -117,7 +117,7 @@ class TestFullPipeline:
         assert "core-rtr-01" in html
         assert "<html" in html
 
-    @patch("audnet.collector.ConnectHandler")
+    @patch("audnet.netmiko_adapter.ConnectHandler")
     def test_end_to_end_noncompliant_device(self, mock_cls, tmp_path):
         """Full pipeline: device with SSHv1, bad VLAN, rogue NTP -- all checks fail."""
         mock_conn = MagicMock()
@@ -191,7 +191,7 @@ class TestFullPipeline:
         assert "8.8.8.8" in fail_details
         assert "192.168.99.99" in fail_details
 
-    @patch("audnet.collector.ConnectHandler")
+    @patch("audnet.netmiko_adapter.ConnectHandler")
     def test_end_to_end_partial_compliance(self, mock_cls, tmp_path):
         """Device passes SSH and VLAN but fails NTP."""
         mock_conn = MagicMock()
