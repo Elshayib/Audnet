@@ -67,7 +67,7 @@ def run_sync_benchmark(devices: list[Device]) -> dict:
     tracemalloc.start()
     start = time.perf_counter()
 
-    with patch("audnet.collector.ConnectHandler", return_value=mock_conn):
+    with patch("audnet.netmiko_adapter.ConnectHandler", return_value=mock_conn):
         results = sync_collect_all(devices, max_workers=min(len(devices), 8))
 
     elapsed = time.perf_counter() - start
