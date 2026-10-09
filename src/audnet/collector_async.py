@@ -19,8 +19,8 @@ from asyncssh import (
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from audnet.exceptions import ParseError
-from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
-from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.models import Device, DeviceSnapshot
+from audnet.snapshots import build_snapshot, error_snapshot, timeout_snapshot
 from audnet.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
@@ -118,21 +118,7 @@ async def collect_device_async(
         raw_outputs = await _do_ssh_collect(device, known_hosts=known_hosts)
 
         logger.info("Successfully collected from %s", device.name)
-        parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
-        return DeviceSnapshot(
-            device_name=device.name,
-            device_type=device.device_type,
-            interfaces=ParsedInterfaces(
-                interfaces=parse_interfaces(
-                    raw_outputs[Slot.INTERFACES], device_type=device.device_type
-                )
-            ),
-            version=ParsedVersion(**parsed_version, raw=raw_outputs[Slot.VERSION]),
-            config=ParsedConfig(
-                lines=parse_config(raw_outputs[Slot.RUNNING_CONFIG]),
-                raw=raw_outputs[Slot.RUNNING_CONFIG],
-            ),
-        )
+        return build_snapshot(device, raw_outputs)
     except (
         PermissionDenied,
         DisconnectError,
@@ -144,14 +130,7 @@ async def collect_device_async(
         ParseError,
     ) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
-        return DeviceSnapshot(
-            device_name=device.name,
-            device_type=device.device_type,
-            interfaces=ParsedInterfaces(),
-            version=ParsedVersion(),
-            config=ParsedConfig(),
-            collection_error=str(exc),
-        )
+        return error_snapshot(device, exc)
 
 
 async def collect_all_async(
@@ -191,14 +170,7 @@ async def collect_all_async(
                     )
                 except asyncio.TimeoutError:
                     logger.error("Collection from %s timed out after %ss", device.name, timeout)
-                    return DeviceSnapshot(
-                        device_name=device.name,
-                        device_type=device.device_type,
-                        interfaces=ParsedInterfaces(),
-                        version=ParsedVersion(),
-                        config=ParsedConfig(),
-                        collection_error=f"Collection timed out after {timeout}s",
-                    )
+                    return timeout_snapshot(device, timeout)
             return await collect_device_async(device, known_hosts=known_hosts)
 
     tasks = [asyncio.create_task(_bounded_collect(d)) for d in devices]
@@ -210,25 +182,7 @@ async def collect_all_async(
             results.append(item)
         elif isinstance(item, BaseException):
             logger.error("Unexpected error collecting from %s: %s", device.name, item)
-            results.append(
-                DeviceSnapshot(
-                    device_name=device.name,
-                    device_type=device.device_type,
-                    interfaces=ParsedInterfaces(),
-                    version=ParsedVersion(),
-                    config=ParsedConfig(),
-                    collection_error=str(item),
-                )
-            )
+            results.append(error_snapshot(device, item))
         else:  # pragma: no cover
-            results.append(
-                DeviceSnapshot(
-                    device_name=device.name,
-                    device_type=device.device_type,
-                    interfaces=ParsedInterfaces(),
-                    version=ParsedVersion(),
-                    config=ParsedConfig(),
-                    collection_error="Unknown collection result",
-                )
-            )
+            results.append(error_snapshot(device, "Unknown collection result"))
     return results

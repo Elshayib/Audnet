@@ -21,8 +21,8 @@ from paramiko.ssh_exception import SSHException
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from audnet.exceptions import ParseError
-from audnet.models import Device, DeviceSnapshot, ParsedInterfaces, ParsedVersion, ParsedConfig
-from audnet.parser import parse_interfaces, parse_version, parse_config
+from audnet.models import Device, DeviceSnapshot
+from audnet.snapshots import build_snapshot, error_snapshot, timeout_snapshot
 from audnet.vendor_registry import Slot, get_commands
 
 logger = logging.getLogger(__name__)
@@ -105,21 +105,7 @@ def collect_device(device: Device) -> DeviceSnapshot:
         raw_outputs = _do_ssh_collect(device)
 
         logger.info("Successfully collected from %s", device.name)
-        parsed_version = parse_version(raw_outputs[Slot.VERSION], device_type=device.device_type)
-        return DeviceSnapshot(
-            device_name=device.name,
-            device_type=device.device_type,
-            interfaces=ParsedInterfaces(
-                interfaces=parse_interfaces(
-                    raw_outputs[Slot.INTERFACES], device_type=device.device_type
-                )
-            ),
-            version=ParsedVersion(**parsed_version, raw=raw_outputs[Slot.VERSION]),
-            config=ParsedConfig(
-                lines=parse_config(raw_outputs[Slot.RUNNING_CONFIG]),
-                raw=raw_outputs[Slot.RUNNING_CONFIG],
-            ),
-        )
+        return build_snapshot(device, raw_outputs)
     except (
         NetmikoTimeoutException,
         NetmikoAuthenticationException,
@@ -134,25 +120,7 @@ def collect_device(device: Device) -> DeviceSnapshot:
         ParseError,
     ) as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
-        return DeviceSnapshot(
-            device_name=device.name,
-            device_type=device.device_type,
-            interfaces=ParsedInterfaces(),
-            version=ParsedVersion(),
-            config=ParsedConfig(),
-            collection_error=str(exc),
-        )
-
-
-def _timeout_snapshot(device: Device, timeout: float) -> DeviceSnapshot:
-    return DeviceSnapshot(
-        device_name=device.name,
-        device_type=device.device_type,
-        interfaces=ParsedInterfaces(),
-        version=ParsedVersion(),
-        config=ParsedConfig(),
-        collection_error=f"Collection timed out after {timeout}s",
-    )
+        return error_snapshot(device, exc)
 
 
 def collect_all(
@@ -226,7 +194,7 @@ def collect_all(
                     logger.error(
                         "Collection from %s timed out after %ss", dev.name, timeout
                     )
-                    completed[dev.name] = _timeout_snapshot(dev, timeout)
+                    completed[dev.name] = timeout_snapshot(dev, timeout)
                     pending.discard(fut)
 
                 if not pending:
@@ -250,23 +218,16 @@ def collect_all(
                     completed[dev.name] = future.result(timeout=0)
                 except concurrent.futures.CancelledError:
                     if dev.name not in completed:
-                        completed[dev.name] = _timeout_snapshot(dev, timeout or 0)
+                        completed[dev.name] = timeout_snapshot(dev, timeout or 0)
                 except TimeoutError:
                     future.cancel()
-                    completed[dev.name] = _timeout_snapshot(dev, timeout or 0)
+                    completed[dev.name] = timeout_snapshot(dev, timeout or 0)
                 except Exception as exc:
                     # Isolate unexpected worker exceptions so one bad device
                     # does not abort the rest of the batch.
                     logger.error("Unexpected error collecting from %s: %s", dev.name, exc)
-                    completed[dev.name] = DeviceSnapshot(
-                        device_name=dev.name,
-                        device_type=dev.device_type,
-                        interfaces=ParsedInterfaces(),
-                        version=ParsedVersion(),
-                        config=ParsedConfig(),
-                        collection_error=str(exc),
-                    )
+                    completed[dev.name] = error_snapshot(dev, exc)
 
     for dev in devices:
-        completed.setdefault(dev.name, _timeout_snapshot(dev, timeout or 0))
+        completed.setdefault(dev.name, timeout_snapshot(dev, timeout or 0))
     return [completed[d.name] for d in devices]
