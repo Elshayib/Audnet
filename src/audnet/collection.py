@@ -280,12 +280,32 @@ def collect_all(
 # Async path (asyncssh and other asyncio transports behind the same seam)
 # ---------------------------------------------------------------------------
 
-_ASYNC_RETRYABLE_EXCEPTIONS = (
+try:
+    from scrapli.exceptions import (
+        ScrapliAuthenticationFailed,
+        ScrapliConnectionError,
+        ScrapliTimeout,
+    )
+
+    _SCRAPLI_ASYNC_RETRYABLE: tuple[type[BaseException], ...] = (
+        ScrapliConnectionError,
+        ScrapliTimeout,
+    )
+    _SCRAPLI_AUTH: tuple[type[BaseException], ...] = (ScrapliAuthenticationFailed,)
+except ImportError:  # pragma: no cover - scrapli is an optional extra
+    _SCRAPLI_ASYNC_RETRYABLE = ()
+    _SCRAPLI_AUTH = ()
+
+_ASYNC_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     DisconnectError,
     ChannelOpenError,
     AsyncSshTimeoutError,
     OSError,
     ConnectionError,
+) + _SCRAPLI_ASYNC_RETRYABLE
+
+_ASYNC_AUTH_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    (PermissionDenied,) + _SCRAPLI_AUTH
 )
 
 
@@ -294,9 +314,21 @@ def _is_async_retryable(exc: BaseException) -> bool:
 
     Explicitly excludes authentication failures — those are never transient.
     """
-    if isinstance(exc, PermissionDenied):
+    if isinstance(exc, _ASYNC_AUTH_EXCEPTIONS):
         return False
     return isinstance(exc, _ASYNC_RETRYABLE_EXCEPTIONS)
+
+
+_ASYNC_COLLECT_ERRORS: tuple[type[BaseException], ...] = (
+    PermissionDenied,
+    DisconnectError,
+    ChannelOpenError,
+    AsyncSshTimeoutError,
+    OSError,
+    ValueError,
+    ConnectionError,
+    ParseError,
+) + _SCRAPLI_ASYNC_RETRYABLE + _SCRAPLI_AUTH
 
 
 def _get_default_async_adapter() -> AsyncTransportAdapter:
@@ -351,16 +383,7 @@ async def collect_device_async(
         raw_outputs = await _do_collect_raw_async(device, active)
         logger.info("Successfully collected from %s", device.name)
         return build_snapshot(device, raw_outputs)
-    except (
-        PermissionDenied,
-        DisconnectError,
-        ChannelOpenError,
-        AsyncSshTimeoutError,
-        OSError,
-        ValueError,
-        ConnectionError,
-        ParseError,
-    ) as exc:
+    except _ASYNC_COLLECT_ERRORS as exc:
         logger.error("Failed to collect from %s: %s", device.name, exc)
         return error_snapshot(device, exc)
 

@@ -284,11 +284,17 @@ def audit(
 
     try:
         if use_scrapli:
-            from audnet.scrapli_collector import collect_all_scrapli
+            from audnet.collection import collect_all_async
+            from audnet.scrapli_adapter import ScrapliAdapter
 
             console.print("[dim]Using Scrapli backend[/dim]")
             snapshots = asyncio.run(
-                collect_all_scrapli(devices, max_workers=workers, timeout=timeout)
+                collect_all_async(
+                    devices,
+                    max_workers=workers,
+                    timeout=timeout,
+                    adapter=ScrapliAdapter(),
+                )
             )
         elif use_asyncssh:
             global _collect_all_async

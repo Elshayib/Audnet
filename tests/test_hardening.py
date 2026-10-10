@@ -389,7 +389,11 @@ class TestCliHardening:
         real_import = __import__
 
         def blocked(name, *a, **k):
-            if name == "audnet.scrapli_collector" or name.endswith("scrapli_collector"):
+            if name in (
+                "audnet.scrapli_collector",
+                "audnet.scrapli_adapter",
+                "audnet.collection",
+            ) or name.endswith(("scrapli_collector", "scrapli_adapter")):
                 raise ImportError("scrapli missing")
             return real_import(name, *a, **k)
 
@@ -428,7 +432,7 @@ class TestCliHardening:
                 ],
             )
         assert result.exit_code == 1
-        assert "Backend unavailable" in result.output or "Configuration" in result.output or result.exit_code == 1
+        assert "Backend unavailable" in result.output
 
     def test_invalid_backend_exit_1(self, tmp_path: Path):
         from typer.testing import CliRunner
@@ -925,7 +929,7 @@ class TestScrapliIsolation:
         d1 = Device(name='a', host='10.0.0.1', username='u', password='p')
         d2 = Device(name='b', host='10.0.0.2', username='u', password='p')
 
-        async def fake(dev):
+        async def fake(dev, adapter=None):
             if dev.name == 'b':
                 raise RuntimeError('scrapli boom')
             return DeviceSnapshot(
@@ -936,7 +940,7 @@ class TestScrapliIsolation:
                 config=ParsedConfig(),
             )
 
-        with patch('audnet.scrapli_collector.collect_device_scrapli', side_effect=fake):
+        with patch('audnet.collection.collect_device_async', side_effect=fake):
             snaps = await collect_all_scrapli([d1, d2], max_workers=2)
         by_name = {s.device_name: s for s in snaps}
         assert by_name['a'].collection_error is None

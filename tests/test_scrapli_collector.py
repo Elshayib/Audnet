@@ -1,6 +1,8 @@
-"""Tests for the Scrapli-based async collector (scrapli_collector).
+"""Tests for the Scrapli-based async collector (scrapli_collector shim).
 
-Tests mock the driver class to avoid real SSH connections.
+The shim collects through the deep module with the Scrapli transport
+behind the adapter seam. Tests mock the driver class at the adapter seam
+to avoid real SSH connections.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,10 +32,10 @@ def _mock_raw_outputs() -> list[str]:
 
 
 def _make_mock_driver_and_conn(outputs: list[str] | None = None):
-    """Create a mock Scrapli driver class and connection.
+    """Create a mock Scrapli driver class and connection (adapter seam).
 
-    The driver class, when instantiated and used as an async context manager,
-    yields a mock connection whose send_command returns the given outputs.
+    The driver class, when instantiated, returns a mock connection with
+    async open()/send_command()/close() matching ScrapliAdapter's seam.
     """
     if outputs is None:
         outputs = _mock_raw_outputs()
@@ -48,16 +50,27 @@ def _make_mock_driver_and_conn(outputs: list[str] | None = None):
         return response
 
     mock_conn = AsyncMock()
+    mock_conn.open = AsyncMock()
+    mock_conn.close = AsyncMock()
     mock_conn.send_command = AsyncMock(side_effect=_send_command_side_effect)
 
-    # Create a class that works as `async with MockDriver(...) as conn:`
-    mock_instance = AsyncMock()
-    mock_instance.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_instance.__aexit__ = AsyncMock(return_value=False)
-
-    mock_driver_cls = MagicMock(return_value=mock_instance)
+    mock_driver_cls = MagicMock(return_value=mock_conn)
 
     return mock_driver_cls, mock_conn
+
+
+def _clear_scrapli_modules():
+    import sys
+
+    for key in list(sys.modules):
+        if (
+            key == "audnet.scrapli_collector"
+            or key == "audnet.scrapli_adapter"
+            or key == "audnet.collection"
+            or key == "scrapli"
+            or key.startswith("scrapli.")
+        ):
+            del sys.modules[key]
 
 
 class TestScrapliCollectorImport:
@@ -72,13 +85,10 @@ class TestScrapliCollectorImport:
         outside the try/except, causing NameError at import time.
         """
         import importlib
-        import sys
         import builtins as _builtins
 
         # Remove cached modules so we re-import from scratch
-        for key in list(sys.modules):
-            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
-                del sys.modules[key]
+        _clear_scrapli_modules()
 
         _real_import = _builtins.__import__
 
@@ -96,18 +106,13 @@ class TestScrapliCollectorImport:
         finally:
             _builtins.__import__ = _real_import
             # Restore cached state
-            for key in list(sys.modules):
-                if key == "audnet.scrapli_collector":
-                    del sys.modules[key]
+            _clear_scrapli_modules()
 
     def test_check_scrapli_available_raises_without_scrapli(self):
         """_check_scrapli_available raises ImportError when scrapli is missing."""
-        import sys
         import builtins as _builtins
 
-        for key in list(sys.modules):
-            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
-                del sys.modules[key]
+        _clear_scrapli_modules()
 
         _real_import = _builtins.__import__
 
@@ -127,18 +132,13 @@ class TestScrapliCollectorImport:
                 assert "scrapli is required" in str(e)
         finally:
             _builtins.__import__ = _real_import
-            for key in list(sys.modules):
-                if key == "audnet.scrapli_collector":
-                    del sys.modules[key]
+            _clear_scrapli_modules()
 
     def test_is_retryable_returns_false_without_scrapli(self):
         """_is_retryable returns False when scrapli is not installed."""
-        import sys
         import builtins as _builtins
 
-        for key in list(sys.modules):
-            if key == "audnet.scrapli_collector" or key == "scrapli" or key.startswith("scrapli."):
-                del sys.modules[key]
+        _clear_scrapli_modules()
 
         _real_import = _builtins.__import__
 
@@ -156,9 +156,7 @@ class TestScrapliCollectorImport:
             assert _is_retryable(OSError("test")) is False
         finally:
             _builtins.__import__ = _real_import
-            for key in list(sys.modules):
-                if key == "audnet.scrapli_collector":
-                    del sys.modules[key]
+            _clear_scrapli_modules()
 
 
 class TestGetScrapliPlatformMapping:
@@ -201,7 +199,7 @@ class TestCollectDeviceScrapli:
         device = _make_device()
         mock_driver_cls, _ = _make_mock_driver_and_conn()
 
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             snapshot = await collect_device_scrapli(device)
 
         assert snapshot.device_name == "test-device"
@@ -215,15 +213,12 @@ class TestCollectDeviceScrapli:
 
         device = _make_device()
 
-        async def _fail(*a, **kw):
-            raise ScrapliAuthenticationFailed("auth denied")
+        mock_conn = AsyncMock()
+        mock_conn.open = AsyncMock(side_effect=ScrapliAuthenticationFailed("auth denied"))
+        mock_conn.close = AsyncMock()
+        mock_driver_cls = MagicMock(return_value=mock_conn)
 
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__ = _fail
-        mock_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_driver_cls = MagicMock(return_value=mock_instance)
-
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             snapshot = await collect_device_scrapli(device)
 
         assert snapshot.device_name == "test-device"
@@ -237,15 +232,12 @@ class TestCollectDeviceScrapli:
 
         device = _make_device()
 
-        async def _fail(*a, **kw):
-            raise ScrapliConnectionError("conn refused")
+        mock_conn = AsyncMock()
+        mock_conn.open = AsyncMock(side_effect=ScrapliConnectionError("conn refused"))
+        mock_conn.close = AsyncMock()
+        mock_driver_cls = MagicMock(return_value=mock_conn)
 
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__ = _fail
-        mock_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_driver_cls = MagicMock(return_value=mock_instance)
-
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             snapshot = await collect_device_scrapli(device)
 
         assert snapshot.device_name == "test-device"
@@ -264,14 +256,12 @@ class TestCollectDeviceScrapli:
             raise ScrapliConnectionError("lost connection")
 
         mock_conn = AsyncMock()
+        mock_conn.open = AsyncMock()
+        mock_conn.close = AsyncMock()
         mock_conn.send_command = AsyncMock(side_effect=_fail_send)
+        mock_driver_cls = MagicMock(return_value=mock_conn)
 
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_driver_cls = MagicMock(return_value=mock_instance)
-
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             snapshot = await collect_device_scrapli(device)
 
         assert snapshot.device_name == "test-device"
@@ -286,7 +276,7 @@ class TestCollectDeviceScrapli:
         device = device.model_copy(update={"port": 2222})
         mock_driver_cls, _ = _make_mock_driver_and_conn()
 
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             snapshot = await collect_device_scrapli(device)
 
         assert snapshot.collection_error is None
@@ -304,7 +294,7 @@ class TestCollectAllScrapli:
         devices = [_make_device(f"dev-{i}", f"10.0.0.{i}") for i in range(4)]
         mock_driver_cls, _ = _make_mock_driver_and_conn()
 
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             results = await collect_all_scrapli(devices, max_workers=4)
 
         assert len(results) == 4
@@ -333,14 +323,12 @@ class TestCollectAllScrapli:
             return response
 
         mock_conn = AsyncMock()
+        mock_conn.open = AsyncMock()
+        mock_conn.close = AsyncMock()
         mock_conn.send_command = AsyncMock(side_effect=_slow)
+        mock_driver_cls = MagicMock(return_value=mock_conn)
 
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_driver_cls = MagicMock(return_value=mock_instance)
-
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             results = await collect_all_scrapli([device], max_workers=1, timeout=0.1)
 
         assert len(results) == 1
@@ -370,14 +358,12 @@ class TestCollectAllScrapli:
             raise ScrapliConnectionError("refused")
 
         mock_conn = AsyncMock()
+        mock_conn.open = AsyncMock()
+        mock_conn.close = AsyncMock()
         mock_conn.send_command = AsyncMock(side_effect=_send_side_effect)
+        mock_driver_cls = MagicMock(return_value=mock_conn)
 
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_driver_cls = MagicMock(return_value=mock_instance)
-
-        with patch("audnet.scrapli_collector._get_scrapli_driver", return_value=mock_driver_cls):
+        with patch("audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls):
             results = await collect_all_scrapli(devices, max_workers=2)
 
         assert len(results) == 2
