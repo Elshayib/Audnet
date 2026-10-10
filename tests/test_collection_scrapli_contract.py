@@ -1,7 +1,10 @@
-"""Contract smoke for the scrapli transport behind the seam (issue #205).
+"""Thin per-adapter smoke for the scrapli transport (issue #205, thinned #207).
 
-Thin per-adapter smoke proving the real Scrapli transport satisfies the
-async seam, plus seam-placement checks:
+The shared failure contract (transient-retried, auth-never-retried,
+timeout results, ordering) lives in the contract suites
+(:mod:`tests.test_collection_contract` and
+:mod:`tests.test_collection_async_contract`). This module only proves the
+real Scrapli transport satisfies the async seam:
 
 - Operator audit with the scrapli backend collects through the deep module
 - Per-Device driver choice lives on the adapter, never on the shared interface
@@ -115,77 +118,23 @@ class TestScrapliAdapterSmoke:
         assert "15.2" in snap.version.version
 
     @pytest.mark.asyncio
-    async def test_auth_never_retried(self):
-        from scrapli.exceptions import ScrapliAuthenticationFailed
+    async def test_shim_collects_through_shared_interface(self):
+        """The scrapli backend shim collects through the deep module."""
 
-        from audnet.scrapli_adapter import ScrapliAdapter
+        from audnet.scrapli_collector import (
+            collect_all_scrapli,
+            collect_device_scrapli,
+        )
 
-        mock_conn = AsyncMock()
-        mock_conn.open = AsyncMock(side_effect=ScrapliAuthenticationFailed("auth denied"))
-        mock_conn.close = AsyncMock()
-        mock_driver_cls = MagicMock(return_value=mock_conn)
-        with (
-            patch(
-                "audnet.scrapli_adapter._get_scrapli_driver",
-                return_value=mock_driver_cls,
-            ),
-            patch("asyncio.sleep", return_value=None),
+        mock_driver_cls, _ = _make_mock_scrapli_driver()
+        with patch(
+            "audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls
         ):
-            snap = await collect_device_async(_make_device(), adapter=ScrapliAdapter())
-        assert snap.collection_error is not None
-        assert "auth denied" in snap.collection_error
-        assert mock_conn.open.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_transient_retried_then_succeeds(self):
-        from scrapli.exceptions import ScrapliConnectionError
-
-        from audnet.scrapli_adapter import ScrapliAdapter
-
-        outputs = [
-            _raw_outputs()[Slot.INTERFACES],
-            _raw_outputs()[Slot.VERSION],
-            _raw_outputs()[Slot.RUNNING_CONFIG],
-        ]
-        call_count = 0
-
-        async def _send_ok(*a, **k):
-            nonlocal call_count
-            r = MagicMock()
-            r.result = outputs[min(call_count, len(outputs) - 1)]
-            call_count += 1
-            return r
-
-        good_conn = AsyncMock()
-        good_conn.open = AsyncMock()
-        good_conn.close = AsyncMock()
-        good_conn.send_command = AsyncMock(side_effect=_send_ok)
-
-        attempts = 0
-
-        def _driver_factory(*a, **k):
-            nonlocal attempts
-            attempts += 1
-            if attempts <= 2:
-                bad = AsyncMock()
-                bad.open = AsyncMock(
-                    side_effect=ScrapliConnectionError("t1")
-                )
-                bad.close = AsyncMock()
-                return bad
-            return good_conn
-
-        mock_driver_cls = MagicMock(side_effect=_driver_factory)
-        with (
-            patch(
-                "audnet.scrapli_adapter._get_scrapli_driver",
-                return_value=mock_driver_cls,
-            ),
-            patch("asyncio.sleep", return_value=None),
-        ):
-            snap = await collect_device_async(_make_device(), adapter=ScrapliAdapter())
-        assert snap.collection_error is None
-        assert attempts == 3
+            snap = await collect_device_scrapli(_make_device())
+            assert snap.collection_error is None
+            snaps = await collect_all_scrapli([_make_device()])
+            assert len(snaps) == 1
+            assert snaps[0].collection_error is None
 
     @pytest.mark.asyncio
     async def test_missing_dependency_install_hint(self):
@@ -221,20 +170,6 @@ class TestScrapliAdapterSmoke:
             for key in list(sys.modules):
                 if key == "audnet.scrapli_adapter":
                     del sys.modules[key]
-
-    @pytest.mark.asyncio
-    async def test_collect_all_through_deep_module_preserves_order(self):
-        from audnet.scrapli_adapter import ScrapliAdapter
-
-        devices = [_make_device(f"r{i:02d}", f"10.0.0.{i}") for i in range(1, 4)]
-        mock_driver_cls, _ = _make_mock_scrapli_driver()
-        with patch(
-            "audnet.scrapli_adapter._get_scrapli_driver", return_value=mock_driver_cls
-        ):
-            snaps = await collect_all_async(
-                devices, max_workers=3, adapter=ScrapliAdapter()
-            )
-        assert [s.device_name for s in snaps] == [d.name for d in devices]
 
     def test_strict_key_lives_on_adapter(self):
         from audnet.scrapli_adapter import ScrapliAdapter

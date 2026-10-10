@@ -322,31 +322,6 @@ class TestCollectorParams:
         monkeypatch.setenv("AUDNET_SSH_STRICT_KEY", "1")
         assert _ssh_strict_enabled() is True
 
-    @patch("audnet.netmiko_adapter.ConnectHandler")
-    def test_enable_called_when_secret_set(self, mock_cls, monkeypatch):
-        from audnet.netmiko_adapter import NetmikoAdapter
-
-        mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = ["ifaces", "version", "config"]
-        mock_cls.return_value = mock_conn
-
-        d = Device(
-            name="r1",
-            host="10.0.0.1",
-            username="admin",
-            password="pw",
-            secret="enable-pw",
-        )
-        monkeypatch.setenv("AUDNET_SSH_STRICT_KEY", "0")
-        adapter = NetmikoAdapter()
-        conn = adapter.connect(d)
-        assert conn is mock_conn
-        mock_conn.enable.assert_called_once()
-        # ConnectHandler(**params) — kwargs form
-        kwargs = mock_cls.call_args.kwargs
-        assert kwargs.get("secret") == "enable-pw"
-        assert kwargs.get("system_host_keys") is True
-
 
 class TestRealtimeHelpers:
     def test_datagram_sync_callback_no_ensure_future_error(self):
@@ -599,56 +574,88 @@ class TestStrictCredentials:
 
 
 class TestCollectorIsolation:
+    """Per-device isolation through the shared interface with fake adapters.
+
+    The failure contract (retry, timeout, auth) lives in the contract
+    suites; here we only prove one bad Device cannot abort the batch.
+    """
+
     def test_unexpected_exception_isolated(self):
+        from typing import Any
+
         from audnet.collector import collect_all
         from audnet.models import Device
+        from audnet.vendor_registry import Slot
+
+        good_raw = {
+            Slot.INTERFACES: "Interface up",
+            Slot.VERSION: "Cisco IOS Software, Version 15.2\nuptime is 1 day",
+            Slot.RUNNING_CONFIG: "hostname ok\n",
+        }
+
+        class _MixedAdapter:
+            def connect(self, device: Device) -> Any:
+                if device.name == "bad":
+                    raise RuntimeError("boom")
+                return object()
+
+            def run(self, connection: Any, command: str) -> str:
+                cmd = command.lower()
+                if "interface" in cmd:
+                    return good_raw[Slot.INTERFACES]
+                if "version" in cmd:
+                    return good_raw[Slot.VERSION]
+                return good_raw[Slot.RUNNING_CONFIG]
+
+            def close(self, connection: Any) -> None:
+                return None
 
         d1 = Device(name="ok", host="10.0.0.1", username="a", password="p")
         d2 = Device(name="bad", host="10.0.0.2", username="a", password="p")
 
-        def fake_collect(dev, adapter=None):
-            if dev.name == "bad":
-                # Simulate a future that raises unexpected error when result() is called
-                raise RuntimeError("boom")
-            return DeviceSnapshot(
-                device_name=dev.name,
-                device_type=dev.device_type,
-                interfaces=ParsedInterfaces(),
-                version=ParsedVersion(),
-                config=ParsedConfig(lines=["hostname ok"]),
-            )
-
-        # Patch at thread level: make collect_device raise for bad device
-        with patch("audnet.collection.collect_device", side_effect=fake_collect):
-            snaps = collect_all([d1, d2], max_workers=2)
+        snaps = collect_all([d1, d2], max_workers=2, adapter=_MixedAdapter())
         assert len(snaps) == 2
         by_name = {s.device_name: s for s in snaps}
         assert by_name["ok"].collection_error is None
-        # RuntimeError is raised inside the worker and caught by collect_device's
-        # outer try — if not, collect_all isolates via future.result Exception
-        assert by_name["bad"].collection_error is not None or by_name["bad"].config.lines
+        assert by_name["bad"].collection_error is not None
 
     @pytest.mark.asyncio
     async def test_async_gather_isolates_exceptions(self):
+        from typing import Any
+
         from audnet.collection import collect_all_async
         from audnet.models import Device
+        from audnet.vendor_registry import Slot
+
+        good_raw = {
+            Slot.INTERFACES: "Interface up",
+            Slot.VERSION: "Cisco IOS Software, Version 15.2\nuptime is 1 day",
+            Slot.RUNNING_CONFIG: "hostname a\n",
+        }
+
+        class _MixedAsyncAdapter:
+            async def connect(self, device: Device) -> Any:
+                if device.name == "b":
+                    raise RuntimeError("async boom")
+                return object()
+
+            async def run(
+                self, connection: Any, command: str, *, timeout: float | None = None
+            ) -> str:
+                cmd = command.lower()
+                if "interface" in cmd:
+                    return good_raw[Slot.INTERFACES]
+                if "version" in cmd:
+                    return good_raw[Slot.VERSION]
+                return good_raw[Slot.RUNNING_CONFIG]
+
+            async def close(self, connection: Any) -> None:
+                return None
 
         d1 = Device(name="a", host="10.0.0.1", username="u", password="p")
         d2 = Device(name="b", host="10.0.0.2", username="u", password="p")
 
-        async def fake(dev, adapter=None):
-            if dev.name == "b":
-                raise RuntimeError("async boom")
-            return DeviceSnapshot(
-                device_name=dev.name,
-                device_type=dev.device_type,
-                interfaces=ParsedInterfaces(),
-                version=ParsedVersion(),
-                config=ParsedConfig(),
-            )
-
-        with patch("audnet.collection.collect_device_async", side_effect=fake):
-            snaps = await collect_all_async([d1, d2], max_workers=2)
+        snaps = await collect_all_async([d1, d2], max_workers=2, adapter=_MixedAsyncAdapter())
         assert len(snaps) == 2
         by_name = {s.device_name: s for s in snaps}
         assert by_name["a"].collection_error is None
@@ -720,115 +727,6 @@ class TestSnmpDetect:
         with patch("pysnmp.hlapi.asyncio.get_cmd", side_effect=err_status):
             result = await detect_vendor_snmp("10.0.0.1")
         assert result == "cisco_ios"
-
-
-class TestAsyncCollectErrors:
-    @pytest.mark.asyncio
-    async def test_nonzero_exit_becomes_error(self):
-        from audnet.collection import collect_device_async
-
-        mock_result = MagicMock()
-        mock_result.exit_status = 1
-        mock_result.stdout = ""
-        mock_result.stderr = "fail"
-
-        mock_conn = MagicMock()
-        mock_conn.run = pytest.importorskip("unittest.mock").AsyncMock(
-            return_value=mock_result
-        )
-        mock_conn.close = MagicMock()
-        mock_conn.wait_closed = pytest.importorskip("unittest.mock").AsyncMock()
-
-        with patch(
-            "audnet.asyncssh_adapter.asyncssh.connect",
-            new=pytest.importorskip("unittest.mock").AsyncMock(
-                return_value=mock_conn
-            ),
-        ):
-            snap = await collect_device_async(
-                Device(name="r1", host="10.0.0.1", username="u", password="p")
-            )
-        assert snap.collection_error is not None
-        assert "exit=1" in snap.collection_error
-
-    @pytest.mark.asyncio
-    async def test_key_auth_params(self):
-        from audnet.asyncssh_adapter import AsyncSSHAdapter
-        from unittest.mock import AsyncMock
-
-        mock_conn = MagicMock()
-        mock_conn.run = AsyncMock()
-        mock_conn.close = MagicMock()
-        mock_conn.wait_closed = AsyncMock()
-        mock_connect = AsyncMock(return_value=mock_conn)
-
-        with patch(
-            "audnet.asyncssh_adapter.asyncssh.connect", new=mock_connect
-        ):
-            adapter = AsyncSSHAdapter(known_hosts="")
-            await adapter.connect(
-                Device(
-                    name="r1",
-                    host="10.0.0.1",
-                    username="u",
-                    password="",
-                    use_keys=True,
-                    key_file="/tmp/id_rsa",
-                ),
-            )
-        kwargs = mock_connect.call_args.kwargs
-        assert kwargs.get("client_keys") == ["/tmp/id_rsa"]
-        assert kwargs.get("known_hosts") == ""
-
-    @pytest.mark.asyncio
-    async def test_use_keys_default_without_path(self):
-        from audnet.asyncssh_adapter import AsyncSSHAdapter
-        from unittest.mock import AsyncMock
-
-        mock_conn = MagicMock()
-        mock_conn.run = AsyncMock()
-        mock_conn.close = MagicMock()
-        mock_conn.wait_closed = AsyncMock()
-        mock_connect = AsyncMock(return_value=mock_conn)
-
-        with patch(
-            "audnet.asyncssh_adapter.asyncssh.connect", new=mock_connect
-        ):
-            adapter = AsyncSSHAdapter()
-            await adapter.connect(
-                Device(
-                    name="r1",
-                    host="10.0.0.1",
-                    username="u",
-                    password="",
-                    use_keys=True,
-                    key_file=None,
-                )
-            )
-        assert mock_connect.call_args.kwargs.get("client_keys") == "default"
-
-    @pytest.mark.asyncio
-    async def test_none_stdout_errors(self):
-        from audnet.collection import collect_device_async
-        from unittest.mock import AsyncMock
-
-        mock_result = MagicMock()
-        mock_result.exit_status = 0
-        mock_result.stdout = None
-        mock_conn = MagicMock()
-        mock_conn.run = AsyncMock(return_value=mock_result)
-        mock_conn.close = MagicMock()
-        mock_conn.wait_closed = AsyncMock()
-
-        with patch(
-            "audnet.asyncssh_adapter.asyncssh.connect",
-            new=AsyncMock(return_value=mock_conn),
-        ):
-            snap = await collect_device_async(
-                Device(name="r1", host="10.0.0.1", username="u", password="p")
-            )
-        assert snap.collection_error is not None
-        assert "no stdout" in snap.collection_error
 
 
 class TestCliBackends:
@@ -919,33 +817,6 @@ class TestCliBackends:
                 ],
             )
         assert result.exit_code == 0
-
-class TestScrapliIsolation:
-    @pytest.mark.asyncio
-    async def test_scrapli_gather_isolates(self):
-        pytest.importorskip('scrapli')
-        from audnet.scrapli_collector import collect_all_scrapli
-
-        d1 = Device(name='a', host='10.0.0.1', username='u', password='p')
-        d2 = Device(name='b', host='10.0.0.2', username='u', password='p')
-
-        async def fake(dev, adapter=None):
-            if dev.name == 'b':
-                raise RuntimeError('scrapli boom')
-            return DeviceSnapshot(
-                device_name=dev.name,
-                device_type=dev.device_type,
-                interfaces=ParsedInterfaces(),
-                version=ParsedVersion(),
-                config=ParsedConfig(),
-            )
-
-        with patch('audnet.collection.collect_device_async', side_effect=fake):
-            snaps = await collect_all_scrapli([d1, d2], max_workers=2)
-        by_name = {s.device_name: s for s in snaps}
-        assert by_name['a'].collection_error is None
-        assert 'scrapli boom' in (by_name['b'].collection_error or '')
-
 
 class TestWebhookStatus:
     @pytest.mark.asyncio

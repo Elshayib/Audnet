@@ -1,19 +1,49 @@
+"""Full-pipeline integration through the shared collection interface (#207).
+
+Collects through ``collect_all`` with a fake raw-transport adapter — no
+test reaches past the shared interface into adapter internals. The fake
+only moves bytes (per-slot raw CLI output); retry, parsing, audit, and
+reporting all run for real.
+"""
+
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from typing import Any
 
 from audnet.collector import collect_all
 from audnet.compliance import run_checks
-from audnet.config import load_inventory, load_baseline
+from audnet.config import load_baseline, load_inventory
 from audnet.models import (
     AuditReport,
+    Device,
     DeviceSnapshot,
+    ParsedConfig,
     ParsedInterfaces,
     ParsedVersion,
-    ParsedConfig,
 )
-from audnet.parser import parse_interfaces, parse_version, parse_config
-from audnet.reporter import render_markdown, render_html
+from audnet.parser import parse_config, parse_interfaces, parse_version
+from audnet.vendor_registry import Slot
+
+
+class FakeAdapter:
+    """Fake raw-transport adapter: connect/run/close, only moves bytes."""
+
+    def __init__(self, raw: dict[Slot, str]) -> None:
+        self._raw = raw
+
+    def connect(self, device: Device) -> Any:
+        return object()
+
+    def run(self, connection: Any, command: str) -> str:
+        cmd = command.lower()
+        if "interface" in cmd or "terse" in cmd or "system interface" in cmd:
+            return self._raw[Slot.INTERFACES]
+        if "version" in cmd or "system status" in cmd or "system info" in cmd:
+            return self._raw[Slot.VERSION]
+        return self._raw[Slot.RUNNING_CONFIG]
+
+    def close(self, connection: Any) -> None:
+        return None
 
 
 def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw: str):
@@ -26,37 +56,61 @@ def _make_snapshot(name: str, interfaces_raw: str, version_raw: str, config_raw:
     )
 
 
-class TestFullPipeline:
-    @patch("audnet.netmiko_adapter.ConnectHandler")
-    def test_end_to_end_compliant_device(self, mock_cls, tmp_path):
-        """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device."""
-        mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = [
-            (
-                "Interface              IP-Address      OK? Method Status                Protocol\n"
-                "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up\n"
-                "GigabitEthernet0/1     unassigned      YES NVRAM  administratively down down"
-            ),
-            (
-                "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
-                "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
-                "router uptime is 5 days, 3 hours, 22 minutes"
-            ),
-            (
-                "hostname core-rtr-01\n"
-                "ip ssh version 2\n"
-                "ntp server 10.0.0.50\n"
-                "ntp server 10.0.0.51\n"
-                "logging host 10.0.0.60\n"
-                "interface GigabitEthernet0/0\n"
-                " switchport access vlan 10\n"
-            ),
-        ]
-        mock_conn.is_alive.return_value = True
-        mock_conn.__enter__.return_value = mock_conn
-        mock_conn.__exit__.return_value = False
-        mock_cls.return_value = mock_conn
+_COMPLIANT_RAW = {
+    Slot.INTERFACES: (
+        "Interface              IP-Address      OK? Method Status                Protocol\n"
+        "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up\n"
+        "GigabitEthernet0/1     unassigned      YES NVRAM  administratively down down"
+    ),
+    Slot.VERSION: (
+        "Cisco IOS Software, C3750 Software (C3750-IPSERVICESK9-M), "
+        "Version 15.2(4)E10, RELEASE SOFTWARE\n\n"
+        "router uptime is 5 days, 3 hours, 22 minutes"
+    ),
+    Slot.RUNNING_CONFIG: (
+        "hostname core-rtr-01\n"
+        "ip ssh version 2\n"
+        "ntp server 10.0.0.50\n"
+        "ntp server 10.0.0.51\n"
+        "logging host 10.0.0.60\n"
+        "interface GigabitEthernet0/0\n"
+        " switchport access vlan 10\n"
+    ),
+}
 
+_NONCOMPLIANT_RAW = {
+    Slot.INTERFACES: (
+        "Interface              IP-Address      OK? Method Status                Protocol\n"
+        "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
+    ),
+    Slot.VERSION: "Cisco IOS Software, Version 12.4\n\nrouter uptime is 1 day",
+    Slot.RUNNING_CONFIG: (
+        "hostname dist-sw-01\n"
+        "ip ssh version 1\n"
+        "ntp server 8.8.8.8\n"
+        "logging host 192.168.99.99\n"
+        "interface GigabitEthernet0/1\n"
+        " switchport access vlan 999\n"
+    ),
+}
+
+_PARTIAL_RAW = {
+    Slot.INTERFACES: "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+    Slot.VERSION: "Cisco IOS Software, Version 15.2\nuptime is 3 days",
+    Slot.RUNNING_CONFIG: (
+        "hostname rtr02\n"
+        "ip ssh version 2\n"
+        "ntp server 10.0.0.50\n"
+        "ntp server 8.8.8.8\n"
+        "interface Gi0/1\n"
+        " switchport access vlan 20\n"
+    ),
+}
+
+
+class TestFullPipeline:
+    def test_end_to_end_compliant_device(self, tmp_path):
+        """Full pipeline: SSH collect -> parse -> audit -> report for a compliant device."""
         inv = tmp_path / "devices.yaml"
         inv.write_text(
             "devices:\n  - name: core-rtr-01\n    host: 10.0.0.1\n"
@@ -77,7 +131,7 @@ class TestFullPipeline:
 
         _, devices = load_inventory(str(inv))
         baseline_data = load_baseline(str(bl))
-        snapshots = collect_all(devices, max_workers=1)
+        snapshots = collect_all(devices, max_workers=1, adapter=FakeAdapter(_COMPLIANT_RAW))
 
         assert len(snapshots) == 1
         snap = snapshots[0]
@@ -88,13 +142,7 @@ class TestFullPipeline:
 
         parsed_snap = _make_snapshot(
             name=snap.device_name,
-            interfaces_raw=mock_conn.send_command.side_effect[0]
-            if False
-            else (
-                "Interface              IP-Address      OK? Method Status                Protocol\n"
-                "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up\n"
-                "GigabitEthernet0/1     unassigned      YES NVRAM  administratively down down"
-            ),
+            interfaces_raw=_COMPLIANT_RAW[Slot.INTERFACES],
             version_raw=snap.version.raw,
             config_raw=snap.config.raw,
         )
@@ -110,6 +158,8 @@ class TestFullPipeline:
         assert report.pass_count == 4
         assert report.fail_count == 0
 
+        from audnet.reporter import render_html, render_markdown
+
         md = render_markdown([report])
         html = render_html([report])
         assert "core-rtr-01" in md
@@ -117,30 +167,8 @@ class TestFullPipeline:
         assert "core-rtr-01" in html
         assert "<html" in html
 
-    @patch("audnet.netmiko_adapter.ConnectHandler")
-    def test_end_to_end_noncompliant_device(self, mock_cls, tmp_path):
+    def test_end_to_end_noncompliant_device(self, tmp_path):
         """Full pipeline: device with SSHv1, bad VLAN, rogue NTP -- all checks fail."""
-        mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = [
-            (
-                "Interface              IP-Address      OK? Method Status                Protocol\n"
-                "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
-            ),
-            ("Cisco IOS Software, Version 12.4\n\nrouter uptime is 1 day"),
-            (
-                "hostname dist-sw-01\n"
-                "ip ssh version 1\n"
-                "ntp server 8.8.8.8\n"
-                "logging host 192.168.99.99\n"
-                "interface GigabitEthernet0/1\n"
-                " switchport access vlan 999\n"
-            ),
-        ]
-        mock_conn.is_alive.return_value = True
-        mock_conn.__enter__.return_value = mock_conn
-        mock_conn.__exit__.return_value = False
-        mock_cls.return_value = mock_conn
-
         inv = tmp_path / "devices.yaml"
         inv.write_text(
             "devices:\n  - name: dist-sw-01\n    host: 10.0.0.2\n"
@@ -160,17 +188,14 @@ class TestFullPipeline:
 
         _, devices = load_inventory(str(inv))
         baseline_data = load_baseline(str(bl))
-        snapshots = collect_all(devices, max_workers=1)
+        snapshots = collect_all(devices, max_workers=1, adapter=FakeAdapter(_NONCOMPLIANT_RAW))
 
         snap = snapshots[0]
         assert snap.collection_error is None
 
         parsed_snap = _make_snapshot(
             name=snap.device_name,
-            interfaces_raw=(
-                "Interface              IP-Address      OK? Method Status                Protocol\n"
-                "GigabitEthernet0/0     10.0.0.1        YES NVRAM  up                    up"
-            ),
+            interfaces_raw=_NONCOMPLIANT_RAW[Slot.INTERFACES],
             version_raw=snap.version.raw,
             config_raw=snap.config.raw,
         )
@@ -191,27 +216,8 @@ class TestFullPipeline:
         assert "8.8.8.8" in fail_details
         assert "192.168.99.99" in fail_details
 
-    @patch("audnet.netmiko_adapter.ConnectHandler")
-    def test_end_to_end_partial_compliance(self, mock_cls, tmp_path):
+    def test_end_to_end_partial_compliance(self, tmp_path):
         """Device passes SSH and VLAN but fails NTP."""
-        mock_conn = MagicMock()
-        mock_conn.send_command.side_effect = [
-            "Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
-            "Cisco IOS Software, Version 15.2\nuptime is 3 days",
-            (
-                "hostname rtr02\n"
-                "ip ssh version 2\n"
-                "ntp server 10.0.0.50\n"
-                "ntp server 8.8.8.8\n"
-                "interface Gi0/1\n"
-                " switchport access vlan 20\n"
-            ),
-        ]
-        mock_conn.is_alive.return_value = True
-        mock_conn.__enter__.return_value = mock_conn
-        mock_conn.__exit__.return_value = False
-        mock_cls.return_value = mock_conn
-
         inv = tmp_path / "devices.yaml"
         inv.write_text(
             "devices:\n  - name: rtr02\n    host: 10.0.0.3\n"
@@ -229,14 +235,14 @@ class TestFullPipeline:
 
         _, devices = load_inventory(str(inv))
         baseline_data = load_baseline(str(bl))
-        snapshots = collect_all(devices, max_workers=1)
+        snapshots = collect_all(devices, max_workers=1, adapter=FakeAdapter(_PARTIAL_RAW))
 
         snap = snapshots[0]
         assert snap.collection_error is None
 
         parsed_snap = _make_snapshot(
             name=snap.device_name,
-            interfaces_raw="Interface  IP-Address  Status  Protocol\nGi0/0  10.0.0.1  up  up",
+            interfaces_raw=_PARTIAL_RAW[Slot.INTERFACES],
             version_raw=snap.version.raw,
             config_raw=snap.config.raw,
         )
