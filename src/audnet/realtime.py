@@ -642,7 +642,7 @@ class RealtimeListener:
     async def _handle_change(self, event: ChangeEvent) -> None:
         """Enrich a change event with compliance results and send alerts."""
         if self._baseline and event.device_name in self._devices:
-            from audnet.collector_async import collect_device_async
+            from audnet.collection import collect_device_async
             from audnet.compliance import run_checks
 
             device = self._devices[event.device_name]

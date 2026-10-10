@@ -112,7 +112,7 @@ class TestOnSnmpTrap:
         fake_snapshot = MagicMock()
         fake_snapshot.collection_error = None
         with patch(
-            "audnet.collector_async.collect_device_async",
+            "audnet.collection.collect_device_async",
             new=AsyncMock(return_value=fake_snapshot),
         ):
             listener._on_snmp_trap("rtr01", "10.0.0.1", "linkDown")
@@ -141,7 +141,7 @@ class TestHandleChangeBaseline:
             MagicMock(check_name="strong_crypto", passed=False, severity="high", detail="weak"),
         ]
         with patch(
-            "audnet.collector_async.collect_device_async",
+            "audnet.collection.collect_device_async",
             new=AsyncMock(return_value=fake_snapshot),
         ):
             with patch("audnet.compliance.run_checks", return_value=fake_results):

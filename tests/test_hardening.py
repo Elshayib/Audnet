@@ -626,13 +626,13 @@ class TestCollectorIsolation:
 
     @pytest.mark.asyncio
     async def test_async_gather_isolates_exceptions(self):
-        from audnet.collector_async import collect_all_async
+        from audnet.collection import collect_all_async
         from audnet.models import Device
 
         d1 = Device(name="a", host="10.0.0.1", username="u", password="p")
         d2 = Device(name="b", host="10.0.0.2", username="u", password="p")
 
-        async def fake(dev, known_hosts=None):
+        async def fake(dev, adapter=None):
             if dev.name == "b":
                 raise RuntimeError("async boom")
             return DeviceSnapshot(
@@ -643,7 +643,7 @@ class TestCollectorIsolation:
                 config=ParsedConfig(),
             )
 
-        with patch("audnet.collector_async.collect_device_async", side_effect=fake):
+        with patch("audnet.collection.collect_device_async", side_effect=fake):
             snaps = await collect_all_async([d1, d2], max_workers=2)
         assert len(snaps) == 2
         by_name = {s.device_name: s for s in snaps}
@@ -721,7 +721,7 @@ class TestSnmpDetect:
 class TestAsyncCollectErrors:
     @pytest.mark.asyncio
     async def test_nonzero_exit_becomes_error(self):
-        from audnet.collector_async import collect_device_async
+        from audnet.collection import collect_device_async
 
         mock_result = MagicMock()
         mock_result.exit_status = 1
@@ -729,13 +729,18 @@ class TestAsyncCollectErrors:
         mock_result.stderr = "fail"
 
         mock_conn = MagicMock()
-        mock_conn.run = pytest.importorskip("unittest.mock").AsyncMock(return_value=mock_result)
-        mock_conn.__aenter__ = pytest.importorskip("unittest.mock").AsyncMock(
-            return_value=mock_conn
+        mock_conn.run = pytest.importorskip("unittest.mock").AsyncMock(
+            return_value=mock_result
         )
-        mock_conn.__aexit__ = pytest.importorskip("unittest.mock").AsyncMock(return_value=False)
+        mock_conn.close = MagicMock()
+        mock_conn.wait_closed = pytest.importorskip("unittest.mock").AsyncMock()
 
-        with patch("audnet.collector_async.asyncssh.connect", return_value=mock_conn):
+        with patch(
+            "audnet.asyncssh_adapter.asyncssh.connect",
+            new=pytest.importorskip("unittest.mock").AsyncMock(
+                return_value=mock_conn
+            ),
+        ):
             snap = await collect_device_async(
                 Device(name="r1", host="10.0.0.1", username="u", password="p")
             )
@@ -744,20 +749,20 @@ class TestAsyncCollectErrors:
 
     @pytest.mark.asyncio
     async def test_key_auth_params(self):
-        from audnet.collector_async import _do_ssh_collect
+        from audnet.asyncssh_adapter import AsyncSSHAdapter
         from unittest.mock import AsyncMock
 
-        mock_result = MagicMock()
-        mock_result.exit_status = 0
-        mock_result.stdout = "ok"
-
         mock_conn = MagicMock()
-        mock_conn.run = AsyncMock(return_value=mock_result)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.run = AsyncMock()
+        mock_conn.close = MagicMock()
+        mock_conn.wait_closed = AsyncMock()
+        mock_connect = AsyncMock(return_value=mock_conn)
 
-        with patch("audnet.collector_async.asyncssh.connect", return_value=mock_conn) as mock_c:
-            await _do_ssh_collect(
+        with patch(
+            "audnet.asyncssh_adapter.asyncssh.connect", new=mock_connect
+        ):
+            adapter = AsyncSSHAdapter(known_hosts="")
+            await adapter.connect(
                 Device(
                     name="r1",
                     host="10.0.0.1",
@@ -766,27 +771,27 @@ class TestAsyncCollectErrors:
                     use_keys=True,
                     key_file="/tmp/id_rsa",
                 ),
-                known_hosts="",
             )
-        kwargs = mock_c.call_args.kwargs
+        kwargs = mock_connect.call_args.kwargs
         assert kwargs.get("client_keys") == ["/tmp/id_rsa"]
         assert kwargs.get("known_hosts") == ""
 
     @pytest.mark.asyncio
     async def test_use_keys_default_without_path(self):
-        from audnet.collector_async import _do_ssh_collect
+        from audnet.asyncssh_adapter import AsyncSSHAdapter
         from unittest.mock import AsyncMock
 
-        mock_result = MagicMock()
-        mock_result.exit_status = 0
-        mock_result.stdout = "ok"
         mock_conn = MagicMock()
-        mock_conn.run = AsyncMock(return_value=mock_result)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.run = AsyncMock()
+        mock_conn.close = MagicMock()
+        mock_conn.wait_closed = AsyncMock()
+        mock_connect = AsyncMock(return_value=mock_conn)
 
-        with patch("audnet.collector_async.asyncssh.connect", return_value=mock_conn) as mock_c:
-            await _do_ssh_collect(
+        with patch(
+            "audnet.asyncssh_adapter.asyncssh.connect", new=mock_connect
+        ):
+            adapter = AsyncSSHAdapter()
+            await adapter.connect(
                 Device(
                     name="r1",
                     host="10.0.0.1",
@@ -796,11 +801,11 @@ class TestAsyncCollectErrors:
                     key_file=None,
                 )
             )
-        assert mock_c.call_args.kwargs.get("client_keys") == "default"
+        assert mock_connect.call_args.kwargs.get("client_keys") == "default"
 
     @pytest.mark.asyncio
     async def test_none_stdout_errors(self):
-        from audnet.collector_async import collect_device_async
+        from audnet.collection import collect_device_async
         from unittest.mock import AsyncMock
 
         mock_result = MagicMock()
@@ -808,10 +813,13 @@ class TestAsyncCollectErrors:
         mock_result.stdout = None
         mock_conn = MagicMock()
         mock_conn.run = AsyncMock(return_value=mock_result)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.close = MagicMock()
+        mock_conn.wait_closed = AsyncMock()
 
-        with patch("audnet.collector_async.asyncssh.connect", return_value=mock_conn):
+        with patch(
+            "audnet.asyncssh_adapter.asyncssh.connect",
+            new=AsyncMock(return_value=mock_conn),
+        ):
             snap = await collect_device_async(
                 Device(name="r1", host="10.0.0.1", username="u", password="p")
             )

@@ -1,13 +1,13 @@
-"""Deep collection module for the default sync transport.
+"""Deep collection module for sync and async transports.
 
-Small interface — collect one Device, collect many Devices — with the
-default sync transport moved behind a raw-transport adapter seam
-(connect/run/close returning per-slot raw output).
+Small interface — collect one Device, collect many Devices (sync and
+async variants) — with transports moved behind raw-transport adapter
+seams (connect/run/close returning per-slot raw output).
 
 Retry, snapshot assembly, fan-out, and the failure contract live here;
-the adapter only moves bytes.
+adapters only move bytes.
 
-Failure contract (unified):
+Failure contract (unified, sync and async):
 - transient errors retried (up to 3 attempts, exponential backoff)
 - authentication failures never retried
 - per-device wall-clock overruns surface as timeout results in input order
@@ -15,11 +15,18 @@ Failure contract (unified):
 
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, runtime_checkable
 
+from asyncssh import (
+    ChannelOpenError,
+    DisconnectError,
+    PermissionDenied,
+)
+from asyncssh import TimeoutError as AsyncSshTimeoutError
 from netmiko.exceptions import (
     ConfigInvalidException,
     ConnectionException,
@@ -51,6 +58,24 @@ class SyncTransportAdapter(Protocol):
     def connect(self, device: Device) -> Any: ...
     def run(self, connection: Any, command: str) -> str: ...
     def close(self, connection: Any) -> None: ...
+
+
+@runtime_checkable
+class AsyncTransportAdapter(Protocol):
+    """Async raw-transport seam. Implementations only move bytes.
+
+    A single adapter instance is shared across concurrent coroutines, but
+    each coroutine uses its own connection object. Adapters should hold no
+    per-connection mutable state; transport-specific knobs (e.g. host-key
+    handling) live on the adapter constructor, never on the shared
+    collect interface.
+    """
+
+    async def connect(self, device: Device) -> Any: ...
+    async def run(
+        self, connection: Any, command: str, *, timeout: float | None = None
+    ) -> str: ...
+    async def close(self, connection: Any) -> None: ...
 
 
 # Transient exceptions that are safe to retry on.
@@ -249,3 +274,147 @@ def collect_all(
     for dev in devices:
         completed.setdefault(dev.name, timeout_snapshot(dev, timeout or 0))
     return [completed[d.name] for d in devices]
+
+
+# ---------------------------------------------------------------------------
+# Async path (asyncssh and other asyncio transports behind the same seam)
+# ---------------------------------------------------------------------------
+
+_ASYNC_RETRYABLE_EXCEPTIONS = (
+    DisconnectError,
+    ChannelOpenError,
+    AsyncSshTimeoutError,
+    OSError,
+    ConnectionError,
+)
+
+
+def _is_async_retryable(exc: BaseException) -> bool:
+    """Return True if *exc* is a transient async error worth retrying.
+
+    Explicitly excludes authentication failures — those are never transient.
+    """
+    if isinstance(exc, PermissionDenied):
+        return False
+    return isinstance(exc, _ASYNC_RETRYABLE_EXCEPTIONS)
+
+
+def _get_default_async_adapter() -> AsyncTransportAdapter:
+    # Import here to avoid a hard import cycle (asyncssh_adapter imports
+    # models only). asyncssh itself is a hard dependency, imported at top
+    # alongside netmiko for the shared failure contract.
+    from audnet.asyncssh_adapter import AsyncSSHAdapter
+
+    return AsyncSSHAdapter()
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception(_is_async_retryable),
+    reraise=True,
+)
+async def _do_collect_raw_async(
+    device: Device, adapter: AsyncTransportAdapter
+) -> dict[Slot, str]:
+    """Collect raw per-slot CLI output via async *adapter* with retry.
+
+    Retries transient errors up to 3 times with exponential backoff.
+    Returns a dict mapping Slot -> raw CLI output.
+    """
+    commands = get_commands(device.device_type)
+    slot_map = (Slot.INTERFACES, Slot.VERSION, Slot.RUNNING_CONFIG)
+    connection: Any = None
+    try:
+        connection = await adapter.connect(device)
+        results: dict[Slot, str] = {}
+        for slot, cmd in zip(slot_map, commands):
+            results[slot] = await adapter.run(
+                connection, cmd, timeout=device.timeout
+            )
+        return results
+    finally:
+        if connection is not None:
+            try:
+                await adapter.close(connection)
+            except Exception as exc:  # pragma: no cover
+                logger.warning("Failed to close connection to %s: %s", device.name, exc)
+
+
+async def collect_device_async(
+    device: Device, adapter: AsyncTransportAdapter | None = None
+) -> DeviceSnapshot:
+    """Collect data from one device asynchronously (with internal retry)."""
+    active = adapter if adapter is not None else _get_default_async_adapter()
+    logger.info("Collecting data from %s (%s)", device.name, device.host)
+    try:
+        raw_outputs = await _do_collect_raw_async(device, active)
+        logger.info("Successfully collected from %s", device.name)
+        return build_snapshot(device, raw_outputs)
+    except (
+        PermissionDenied,
+        DisconnectError,
+        ChannelOpenError,
+        AsyncSshTimeoutError,
+        OSError,
+        ValueError,
+        ConnectionError,
+        ParseError,
+    ) as exc:
+        logger.error("Failed to collect from %s: %s", device.name, exc)
+        return error_snapshot(device, exc)
+
+
+async def collect_all_async(
+    devices: list[Device],
+    max_workers: int = 50,
+    timeout: float | None = None,
+    adapter: AsyncTransportAdapter | None = None,
+) -> list[DeviceSnapshot]:
+    """Run async collection across all devices concurrently.
+
+    Uses an asyncio.Semaphore to limit concurrent connections, which is
+    more memory-efficient than a ThreadPool for large inventories.
+
+    Args:
+        devices: List of devices to collect from.
+        max_workers: Maximum concurrent SSH connections (semaphore limit).
+            Defaults to 50 -- much higher than the sync default of 4
+            because async connections have minimal per-connection overhead.
+        timeout: Optional per-device timeout in seconds.
+        adapter: Raw-transport adapter. None uses the default AsyncSSH adapter.
+
+    Returns:
+        List of DeviceSnapshot results, one per device, in input order.
+    """
+    active = adapter if adapter is not None else _get_default_async_adapter()
+    semaphore = asyncio.Semaphore(max_workers)
+
+    async def _bounded_collect(device: Device) -> DeviceSnapshot:
+        async with semaphore:
+            if timeout:
+                try:
+                    return await asyncio.wait_for(
+                        collect_device_async(device, active),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Collection from %s timed out after %ss", device.name, timeout
+                    )
+                    return timeout_snapshot(device, timeout)
+            return await collect_device_async(device, active)
+
+    tasks = [asyncio.create_task(_bounded_collect(d)) for d in devices]
+    # Isolate per-device failures so one bad host cannot abort the batch
+    raw = await asyncio.gather(*tasks, return_exceptions=True)
+    results: list[DeviceSnapshot] = []
+    for device, item in zip(devices, raw):
+        if isinstance(item, DeviceSnapshot):
+            results.append(item)
+        elif isinstance(item, BaseException):
+            logger.error("Unexpected error collecting from %s: %s", device.name, item)
+            results.append(error_snapshot(device, item))
+        else:  # pragma: no cover
+            results.append(error_snapshot(device, "Unknown collection result"))
+    return results

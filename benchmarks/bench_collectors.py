@@ -88,17 +88,18 @@ async def run_async_benchmark(devices: list[Device]) -> dict:
     tracemalloc.start()
     start = time.perf_counter()
 
-    with patch("audnet.collector_async.asyncssh") as mock_ssh:
+    with patch("audnet.asyncssh_adapter.asyncssh") as mock_ssh:
+        from unittest.mock import AsyncMock
+
         mock_conn = MagicMock()
-        mock_conn.run = MagicMock(return_value=MagicMock(stdout=MOCK_OUTPUTS[0]))
-        mock_conn.__aenter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__aexit__ = MagicMock(return_value=False)
-        mock_ssh.connect = MagicMock(return_value=mock_conn)
-        # Make async context manager work
-        mock_cm = MagicMock()
-        mock_cm.__aenter__ = MagicMock(return_value=mock_conn)
-        mock_cm.__aexit__ = MagicMock(return_value=False)
-        mock_ssh.connect.return_value = mock_cm
+        mock_result = MagicMock()
+        mock_result.exit_status = 0
+        mock_result.stdout = MOCK_OUTPUTS[0]
+        mock_result.stderr = ""
+        mock_conn.run = AsyncMock(return_value=mock_result)
+        mock_conn.close = MagicMock()
+        mock_conn.wait_closed = AsyncMock()
+        mock_ssh.connect = AsyncMock(return_value=mock_conn)
 
         results = await collect_all_async(devices, max_workers=min(len(devices), 50))
 
